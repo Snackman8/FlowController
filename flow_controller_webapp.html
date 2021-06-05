@@ -1,0 +1,44 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"
+        integrity="sha512-bLT0Qm9VnAYZDflyKcBaQ2gg0hSYNQrJ8RilYldYQ1FxQYoCLtUjuuRuZo+fjqhx/qtq/1itJ0C2ejDxltZVFg==" crossorigin="anonymous"></script>
+
+<script type="text/javascript" src="canvas_viewport.js"></script>
+
+<link rel="stylesheet" href="flow_controller_webapp.css">
+
+<h1>Flow Controller</h1>
+
+<canvas id="myCanvas" width=100px height=100px style='border: solid 1px black;'></canvas>
+<br>
+<button onclick="canvasViewportAutofit(gBoundingBox);">Autofit</button><button>Refresh</button>
+
+
+<script>
+    // global variables
+    var gBoundingBox = [0, 0, 0, 0]
+    var gCanvas = document.getElementById("myCanvas");
+    var gCtx = gCanvas.getContext("2d");
+    var gJSCanvasFrame = '';
+
+    // add window resize listener
+    window.addEventListener("resize", window_resize);
+
+    // document ready handler
+    $( document ).ready(function() {
+        canvasViewportInit("myCanvas", refreshCurrentCanvasFrame);
+        window_resize();
+    });
+
+    // redraw the canvas with last known frame instructions
+    function refreshCurrentCanvasFrame() {
+        eval(gJSCanvasFrame);
+    }
+
+    // window resize handler
+    function window_resize(e) {
+        var currentTransform = gCtx.getTransform();
+        gCanvas.width = window.innerWidth * 0.75;
+        gCanvas.height = window.innerHeight * 0.8;
+        gCtx.setTransform(currentTransform);
+        refreshCurrentCanvasFrame();
+}
+</script>
