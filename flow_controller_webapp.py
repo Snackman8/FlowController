@@ -4,7 +4,7 @@
 import logging
 import traceback
 import argparse
-from PyLinkJS import run_pylinkjs_app
+from pylinkjs.PyLinkJS import run_pylinkjs_app
 from flow_controller import FlowControllerJobs
 
 

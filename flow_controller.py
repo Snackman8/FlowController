@@ -10,7 +10,7 @@ import time
 import traceback
 
 
-from smq import SMQClient
+#from smq import SMQClient
 
 # if we restart the flow controller on a different server, what will happen?
 # we can broadcast a shutdown message so all other servers shutdown
@@ -108,8 +108,9 @@ class FlowController(object):
 
 
 def run(args):
-    smqc = SMQClient()
-    smqc.start_client(args['smq_server'], SMQ_ClientName, SMQ_PUBLIST, SMQ_SUBLIST)
+    pass
+#    smqc = SMQClient()
+#    smqc.start_client(args['smq_server'], SMQ_ClientName, SMQ_PUBLIST, SMQ_SUBLIST)
     
 
 #     SMQC[jsc].start_client(smq_server, client_name, pub_list, sub_list)
