@@ -7,23 +7,40 @@
 
 <h1>Flow Controller</h1>
 
+<div id="contextMenu" onclick="contextMenuClicked">
+    <div class=contextMenuItem>Trigger</div>
+    <div class=contextMenuItem>Reset</div>
+</div>
+
 <canvas id="myCanvas" width=100px height=100px style='border: solid 1px black;'></canvas>
 <br>
 <button onclick="canvasViewportAutofit(gBoundingBox);">Autofit</button><button>Refresh</button>
+
 
 
 <script>
     // global variables
     var gBoundingBox = [0, 0, 0, 0]
     var gCanvas = document.getElementById("myCanvas");
+    var gContextMenuJobName;
     var gCtx = gCanvas.getContext("2d");
     var gJSCanvasFrame = '';
 
     // add window resize listener
+    document.addEventListener("click", documentClick);
     window.addEventListener("resize", window_resize);
+    gCanvas.addEventListener("contextmenu", contextMenuMaybe);
+
+    function documentClick(e) {
+        var inside = (e.target.closest('#contextMenu'));
+        if(!inside) {
+            $('#contextMenu').css('display', 'none');
+        }        
+    }
 
     // document ready handler
     $( document ).ready(function() {
+        $(".contextMenuItem").click(contextMenuClicked);
         canvasViewportInit("myCanvas", refreshCurrentCanvasFrame);
         window_resize();
     });
@@ -31,6 +48,26 @@
     // redraw the canvas with last known frame instructions
     function refreshCurrentCanvasFrame() {
         eval(gJSCanvasFrame);
+    }
+
+    function contextMenuMaybe(e) {
+        // translate back to normalized coordinates
+        nc = canvasViewportOffsetXYToAbsoluteXY(e.offsetX, e.offsetY);
+        call_py('context_menu_request_show', nc[0], nc[1], e.pageX, e.pageY); 
+        e.preventDefault();
+    }
+
+    function contextMenuShow(x, y, contextMenuJobName) {
+        gContextMenuJobName = contextMenuJobName
+        $('#contextMenu').css('left', x);
+        $('#contextMenu').css('top', y);
+        $('#contextMenu').css('display', 'block');
+    }
+
+    function contextMenuClicked(e) {
+        // jquery event handler
+        $('#contextMenu').css('display', 'none');
+        call_py('context_menu_click', e.target.innerText, gContextMenuJobName);  
     }
 
     // window resize handler

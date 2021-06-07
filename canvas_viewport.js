@@ -82,6 +82,14 @@ function canvasViewportMousewheel(e) {
     gCanvasViewPortCtx.translate(e.offsetX / gCanvasViewPortZoom - (e.offsetX - oldtransform.e) / oldZoom,
                                  e.offsetY / gCanvasViewPortZoom - (e.offsetY - oldtransform.f) / oldZoom);
 
-    gCanvasViewportRefreshHandler();           
+    gCanvasViewportRefreshHandler();
     e.preventDefault();
+}
+
+
+function canvasViewportOffsetXYToAbsoluteXY(x, y) {
+    var currentTransform = gCanvasViewPortCtx.getTransform();
+    
+    return [(x - currentTransform.e) / currentTransform.a,
+            (y - currentTransform.f) / currentTransform.d];
 }
