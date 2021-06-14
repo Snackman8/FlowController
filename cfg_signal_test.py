@@ -1,4 +1,3 @@
-
 CFG_UID = 'signal_test'
 
 
@@ -11,13 +10,13 @@ def get_jobs():
 
         # premarket for TQQQ
         {'name': 'get_data_premarket_TQQQ',
-         'cron': '15 6 * * *',     # runs at 6:15am
+         'cron': '15 6 * * 1-5',     # runs at 6:15am
          'run_python_script': 'data/get_data_alpha_vantage.py TQQQ',
          'depends': ['premarket_data']},
 
         # premarket for UDOW
         {'name': 'get_data_premarket_UDOW',
-         'cron': '15 6 * * *',     # runs at 6:15am
+         'cron': '15 6 * * 3',     # runs at 6:15am
          'run_python_script': 'data/get_data_alpha_vantage.py UDOW',
          'depends': ['premarket_data']},
 

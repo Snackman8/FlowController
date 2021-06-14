@@ -6,10 +6,11 @@ import traceback
 import argparse
 import time
 from pylinkjs.PyLinkJS import run_pylinkjs_app, get_all_jsclients
-from flow_controller import FlowController, FlowControllerJobs
+from flow_controller import FlowController, FlowControllerRPCClient
 from smq import SMQClient
 import atexit
 import xmlrpc
+import croniter
 
 
 # --------------------------------------------------
@@ -18,6 +19,9 @@ import xmlrpc
 SMQC = None
 
 COLOR_MAPPING = {
+    'READY': 'yellow',
+    'PENDING': 'violet',
+    'RUNNING': 'blue',
     'SUCCESS': 'green',
     'FAIL': 'red',
     }
@@ -26,9 +30,34 @@ COLOR_MAPPING = {
 # --------------------------------------------------
 #    Private Functions
 # --------------------------------------------------
+def _pretty_cron(s):
+    dayofweek = ('Su', 'Mo', 'Tu', 'W', 'Th', 'F', 'Sa')
+    try:
+        retval = '['
+        f = s.split(' ')
+        if f[0] != '*' and f[1] != '*':
+            retval += f"{int(f[1]):02}:{int(f[0]):02}" + ' ' 
+
+        if f[2] != '*' or f[3] != '*':
+            raise Exception('Can not handle day and month yet')
+
+        if f[4] != '*':
+            ff = f[4].split('-')
+            if len(ff) not in (1,2):
+                raise Exception(f'Can not handle day of week format of {f[4]}')
+            retval += dayofweek[int(ff[0])]
+            if len(ff) == 2:
+                retval += '-' + dayofweek[int(ff[1])]
+            retval += ' '            
+    except:        
+        retval = '[? '
+    return retval[:-1] + '] '
+
+
 def _convert_job_to_guinode(j):
     # default values for gui nodes
     defaults = {
+        'text_prefix': '',
         'width': 200,
         'depends': [],
         'x': 0,
@@ -40,6 +69,7 @@ def _convert_job_to_guinode(j):
         'text_padding_left': 4,
         'text_padding_right': 4,
         'icon_shape': 'circle',
+        'no_context_menu': False,
         'parent_curve_settings': []}
 
     # copy the default values
@@ -48,27 +78,37 @@ def _convert_job_to_guinode(j):
         if k not in gn:
             gn[k] = v
 
+    # if no depends, then we don't show an icon
+    if not gn['depends']:
+        gn['icon_shape'] = 'none'
+        gn['no_context_menu'] = True    
+
+    # add a pretty cron
+    if gn['text_prefix'] == '':
+        if 'cron' in gn:
+            gn['text_prefix'] = _pretty_cron(gn['cron'])
+
     # set some derived values
     gn['children'] = []
     gn['children_rendered'] = []
     gn['parents'] = []
     gn['text'] = gn.get('text', gn['name'])
 
-    job_state = gn.get('job_state', '?')
-    gn['icon_color'] = COLOR_MAPPING.get(job_state, 'gainsboro')    
+    job_state = gn['state']
+    gn['icon_color'] = COLOR_MAPPING.get(job_state, 'gainsboro')
 
     # success!
     return gn
 
 
-def _convert_cfg_to_gui_nodes(cfg):
+def _convert_cfg_to_gui_nodes(job_reader_snapshot):
     # convert the cfg nodes to gui nodes
-    fcj = FlowControllerJobs()
-    fcj.load_from_existing_cfg(cfg['_cfg'])
-    jobs = fcj.get_jobs()    
+#     fcj = FlowControllerJobs()
+#     fcj.load_from_existing_cfg(cfg['_cfg'])
+#     jobs = fcj.get_jobs()    
 
-    gui_jobs = [_convert_job_to_guinode(j) for j in jobs]
-    gui_jobs = {j['name']: j for j in gui_jobs}
+    gui_jobs = job_reader_snapshot.get_job_dict()
+    gui_jobs = {k:_convert_job_to_guinode(v) for k, v in gui_jobs.items()}
 
     # repoint the depends to parent gui nodes, and find roots at the same time
     stack = []
@@ -115,15 +155,20 @@ def _convert_cfg_to_gui_nodes(cfg):
     return gui_jobs
 
 def _generate_draw_job_node_js(jsc, node_info):
-    js = f"""
-        gCtx.beginPath();
-        gCtx.strokeStyle = "{node_info['icon_color']}";
-        gCtx.fillStyle = "{node_info['icon_color']}";
-        gCtx.arc({node_info['x_render']}, {node_info['y_render']}, {node_info['icon_radius']}, 0, Math.PI * 2, true);
-        gCtx.stroke();
-        gCtx.fill();
+    js = ""
+    if node_info['icon_shape'] == 'circle':
+        js = f"""
+            gCtx.beginPath();
+            gCtx.strokeStyle = "{node_info['icon_color']}";
+            gCtx.fillStyle = "{node_info['icon_color']}";
+            gCtx.arc({node_info['x_render']}, {node_info['y_render']}, {node_info['icon_radius']}, 0, Math.PI * 2, true);
+            gCtx.stroke();
+            gCtx.fill();
+        """
+    js += f"""
+        var t = "{node_info['text_prefix']}" + "{node_info['text']}";
         gCtx.fillStyle = "{node_info['text_color']}";
-        gCtx.fillText("{node_info['text']}", {node_info['x_rendertext'] + node_info['text_padding_left']}, {node_info['y_render']});
+        gCtx.fillText(t, {node_info['x_rendertext'] + node_info['text_padding_left']}, {node_info['y_render']});
 
         if (({node_info['x_render']} - {node_info['icon_radius']}) < gBoundingBox[0]) {{
             gBoundingBox[0] = ({node_info['x_render']} - {node_info['icon_radius']});
@@ -133,8 +178,8 @@ def _generate_draw_job_node_js(jsc, node_info):
             gBoundingBox[1] = ({node_info['y_render']} - {node_info['icon_radius']});
         }}
 
-        if (({node_info['x_rendertext']} + gCtx.measureText("{node_info['text']}").width + {node_info['text_padding_left']}) > gBoundingBox[2]) {{
-            gBoundingBox[2] = ({node_info['x_rendertext']} + gCtx.measureText("{node_info['text']}").width + {node_info['text_padding_left']});
+        if (({node_info['x_rendertext']} + gCtx.measureText(t).width + {node_info['text_padding_left']}) > gBoundingBox[2]) {{
+            gBoundingBox[2] = ({node_info['x_rendertext']} + gCtx.measureText(t).width + {node_info['text_padding_left']});
         }}
 
         if (({node_info['y_render']} + {node_info['icon_radius']}) > gBoundingBox[3]) {{
@@ -144,8 +189,11 @@ def _generate_draw_job_node_js(jsc, node_info):
 
     if node_info['parents'] is not None:
         for i, p in enumerate(node_info['parents']):
+            js += f"""
+                    var t = "{p['text_prefix']}" + "{p['text']}";
+                """
             pc = node_info['parent_curve_settings'][i]
-            sx = f"""({p['x_rendertext']} + gCtx.measureText("{p['text']}").width + {node_info['text_padding_left']})"""
+            sx = f"""({p['x_rendertext']} + gCtx.measureText(t).width + {node_info['text_padding_left']})"""
             sy = f"""({p['y_render']})"""
             ex = f"""({node_info['x_render'] - node_info['icon_radius']})"""
             ey = f"""({node_info['y_render']})"""
@@ -170,17 +218,17 @@ def _generate_draw_job_node_js(jsc, node_info):
 def context_menu_click(jsc, item_text, job_name):
     if item_text == 'Trigger':
 #        cfg_uid = jsc.tag['cfg']['_cfg']['uid']
-
-        print('CONTEXT')
-
-
-        FlowController.trigger_job_rpc(jsc.tag['FlowControllerInfo']['rpc_addr'], job_name)
+        jsc.tag['FlowControllerRPC'].trigger_job(job_name, reason='Manually triggered by user ?')
+        
+        
+#        FlowController.trigger_job_rpc(jsc.tag['FlowControllerInfo']['rpc_addr'], 
 
 #         print(jsc.tag['FlowControllerInfo'])
 #         
 #         SMQC.publish_message('FlowController.Trigger', {'cfg_uid': cfg_uid, 'job_name': job_name})
     if item_text == 'Reset':
-        FlowController.set_job_state_rpc(jsc.tag['FlowControllerInfo']['rpc_addr'], job_name, 'FAIL')
+        jsc.tag['FlowControllerRPC'].set_job_state(job_name, 'FAIL', reason='failed')
+#        FlowController.set_job_state_rpc(jsc.tag['FlowControllerInfo']['rpc_addr'], job_name, 'FAIL', reason='asdf')
 #        pass
 #         cfg_uid = jsc.tag['cfg']['_cfg']['uid']
 #         SMQC.publish_message('FlowController.SetState', {'cfg_uid': cfg_uid, 'job_name': job_name, 'new'})
@@ -189,6 +237,9 @@ def context_menu_click(jsc, item_text, job_name):
 
 def context_menu_request_show(jsc, x, y, page_x, page_y):
     for j in jsc.tag['gui_nodes'].values():
+        if j['no_context_menu']:
+            continue
+
         if abs(x - j['x_render']) < j['icon_radius']:
             if abs(y - j['y_render']) < j['icon_radius']:
                 jsc.eval_js_code(blocking=False, js_code=f"contextMenuShow({page_x}, {page_y}, \"{j['name']}\");")
@@ -213,11 +264,17 @@ def reconnect(jsc, *args):
         if c['cfg_uid'] == jsc.tag['url_params']['CFG_UID']:
             jsc.tag['FlowControllerInfo'] = c
 
-    jsc.tag['cfg'] = FlowController.get_cfg_rpc(jsc.tag['FlowControllerInfo']['rpc_addr'])
-    jsc.tag['gui_nodes'] = _convert_cfg_to_gui_nodes(jsc.tag['cfg'])
+    jsc.tag['FlowControllerRPC'] = FlowControllerRPCClient(jsc.tag['FlowControllerInfo']['rpc_addr'])
+    refresh_gui_nodes(jsc)
 
     
     redraw_canvas(jsc)
+
+
+def refresh_gui_nodes(jsc):
+    jsc.tag['FlowControllerJobsSnapshot'] = jsc.tag['FlowControllerRPC'].get_jobs_snapshot()     
+    jsc.tag['gui_nodes'] = _convert_cfg_to_gui_nodes(jsc.tag['FlowControllerJobsSnapshot'])
+    
 
 def redraw_canvas(jsc):
     js = """
@@ -243,9 +300,11 @@ def message_handler(smq_uid, msg, msg_data):
     try:
         if msg == 'FlowController.Changed':
             for jsc in get_all_jsclients():
-                if jsc.tag['cfg']['_cfg']['uid'] == msg_data:
-                    jsc.tag['cfg'] = FlowController.get_cfg_rpc(jsc.tag['FlowControllerInfo']['rpc_addr'])
-                    jsc.tag['gui_nodes'] = _convert_cfg_to_gui_nodes(jsc.tag['cfg'])
+                if jsc.tag['FlowControllerInfo']['cfg_uid'] == msg_data:
+                    refresh_gui_nodes(jsc)
+#                     
+#                     jsc.tag['cfg'] = FlowController.get_cfg_rpc(jsc.tag['FlowControllerInfo']['rpc_addr'])
+#                     jsc.tag['gui_nodes'] = _convert_cfg_to_gui_nodes(jsc.tag['cfg'])
                     
                     redraw_canvas(jsc)
     except Exception:
@@ -259,9 +318,9 @@ def message_handler(smq_uid, msg, msg_data):
 def run(args):
     global SMQC
     SMQC = SMQClient()
-    SMQC.set_message_handler(message_handler)
+#    SMQC.set_message_handler(message_handler)
     try:
-        SMQC.start_client(args['smq_server'], 'Flow Controller WebApp', 'FlowController.Trigger', 'FlowController.Changed')
+        SMQC.start_client(args['smq_server'], 'Flow Controller WebApp', 'FlowController.Trigger', 'FlowController.Changed', message_handler)
     except ConnectionRefusedError:
         logging.error('SMQ Server is not running!')
  
