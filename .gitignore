@@ -2,4 +2,5 @@
 .pydevproject
 __pycache__
 *.log
+*.lock
 ledgers

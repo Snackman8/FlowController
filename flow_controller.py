@@ -411,7 +411,7 @@ class FlowControllerBase(FlowControllerMixInBase):
             self._job_manager.set_jobs_with_dependencies_met_to_pending()        
              
             # delay
-            time.sleep(1)
+            time.sleep(0.1)
 
             
 class FlowController(FlowControllerBase, FlowControllerDiscoveryMixIn, FlowControllerRPCMixIn):
