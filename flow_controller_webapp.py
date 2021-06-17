@@ -2,15 +2,18 @@
 #    Imports
 # --------------------------------------------------
 import logging
+import os
 import traceback
 import argparse
 import time
 from pylinkjs.PyLinkJS import run_pylinkjs_app, get_all_jsclients
 from flow_controller import FlowController, FlowControllerRPCClient
+from flow_controller import STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL
 from smq import SMQClient
 import atexit
 import xmlrpc
 import croniter
+from astroid import nodes
 
 
 # --------------------------------------------------
@@ -19,11 +22,11 @@ import croniter
 SMQC = None
 
 COLOR_MAPPING = {
-    'READY': 'yellow',
-    'PENDING': 'violet',
-    'RUNNING': 'blue',
-    'SUCCESS': 'green',
-    'FAIL': 'red',
+    STATE_READY: 'gold',
+    STATE_PENDING: 'lightsalmon',
+    STATE_RUNNING: 'mediumaquamarine',
+    STATE_SUCCESS: 'seagreen',
+    STATE_FAIL: 'firebrick',
     }
 
 
@@ -64,7 +67,7 @@ def _convert_job_to_guinode(j):
         'y': 0,
         'x_offset': 0,
         'y_offset': 0,
-        'icon_radius': 8,
+        'icon_radius': 7,
         'text_color': '#000000',
         'text_padding_left': 4,
         'text_padding_right': 4,
@@ -96,6 +99,7 @@ def _convert_job_to_guinode(j):
 
     job_state = gn['state']
     gn['icon_color'] = COLOR_MAPPING.get(job_state, 'gainsboro')
+    
 
     # success!
     return gn
@@ -193,7 +197,7 @@ def _generate_draw_job_node_js(jsc, node_info):
                     var t = "{p['text_prefix']}" + "{p['text']}";
                 """
             pc = node_info['parent_curve_settings'][i]
-            sx = f"""({p['x_rendertext']} + gCtx.measureText(t).width + {node_info['text_padding_left']})"""
+            sx = f"""({p['x_rendertext']} + gCtx.measureText(t).width + {node_info['text_padding_left']}) + 4"""
             sy = f"""({p['y_render']})"""
             ex = f"""({node_info['x_render'] - node_info['icon_radius']})"""
             ey = f"""({node_info['y_render']})"""
@@ -216,11 +220,50 @@ def _generate_draw_job_node_js(jsc, node_info):
 #    Javascript Callbacks
 # --------------------------------------------------
 def context_menu_click(jsc, item_text, job_name):
-    if item_text == 'Trigger':
+    if item_text == 'Trigger Job':
         jsc.tag['FlowControllerRPC'].trigger_job(job_name, reason='Manually triggered by user ?')
 
-    if item_text == 'Reset':
-        jsc.tag['FlowControllerRPC'].set_job_state(job_name, 'FAIL', reason='failed')
+    if item_text == 'Set as Ready':
+        jsc.tag['FlowControllerRPC'].set_job_state(job_name, STATE_READY, reason='manually set by user ?')
+
+    if item_text == 'Set as Success':
+        jsc.tag['FlowControllerRPC'].set_job_state(job_name, STATE_SUCCESS, reason='manually set by user ?')
+
+    if item_text == 'Set as Fail':
+        jsc.tag['FlowControllerRPC'].set_job_state(job_name, STATE_FAIL, reason='manually set by user ?')
+
+
+
+def canvas_click(jsc, x, y):
+    for j in jsc.tag['gui_nodes'].values():
+        if j['no_context_menu']:
+            continue
+
+        if abs(x - j['x_render']) < j['icon_radius']:
+            if abs(y - j['y_render']) < j['icon_radius']:
+                
+                html = ''
+                
+                details = jsc.tag['FlowControllerJobsSnapshot']._job_dict[j['name']]
+                for k in sorted(details.keys()):
+                    html += f'<span style="color: steelblue">{k} :</span> {details[k]}\n'
+
+                jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_status').html(`{html}`)""")
+                
+                
+                log_filename = jsc.tag['FlowControllerJobsSnapshot'].get_log_filename(j['name'])
+                if os.path.exists(log_filename):
+                    with open(log_filename, 'r') as f:
+                        s = f.read()
+                    s = log_filename + "\n-----\n" + s
+                else:
+                    s = f"<span style='color:red'>This job may not have run for today yet.</span>\n\nlog file at {log_filename} does not exist."
+                jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_log').html(`{s}`)""")
+                
+                
+                
+#                print('****', j['name'], 'clicked!')
+                return
 
 
 def context_menu_request_show(jsc, x, y, page_x, page_y):
@@ -235,7 +278,13 @@ def context_menu_request_show(jsc, x, y, page_x, page_y):
 
 
 def ready(jsc, *args):
-    # convert URL query string to dict
+    # populate the legend
+    html = ''
+    for state in [STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL]:
+        html += f"""<span class="dot" style="background-color: {COLOR_MAPPING[state]}"></span>{state}<br>"""
+    
+    jsc.eval_js_code(blocking=False, js_code=f"$('#legend').html(`{html}`)")
+    
     reconnect(jsc)
     jsc.eval_js_code(blocking=False, js_code="canvasViewportAutofit(gBoundingBox)")
 
@@ -254,13 +303,26 @@ def reconnect(jsc, *args):
             jsc.tag['FlowControllerInfo'] = c
 
     jsc.tag['FlowControllerRPC'] = FlowControllerRPCClient(jsc.tag['FlowControllerInfo']['rpc_addr'])
+    
+    
+    
     refresh_gui_nodes(jsc)
     redraw_canvas(jsc)
 
 
 def refresh_gui_nodes(jsc):
-    jsc.tag['FlowControllerJobsSnapshot'] = jsc.tag['FlowControllerRPC'].get_jobs_snapshot()     
+    jsc.tag['FlowControllerJobsSnapshot'] = jsc.tag['FlowControllerRPC'].get_jobs_snapshot()
+         
+    jsc.eval_js_code(blocking=False, js_code=f"""$('#title').html("{jsc.tag['FlowControllerJobsSnapshot']._cfg['title']}");""")
+         
     jsc.tag['gui_nodes'] = _convert_cfg_to_gui_nodes(jsc.tag['FlowControllerJobsSnapshot'])
+
+
+
+#THE TITLE DOES NOT WORK!!!!!
+#FIX THE COLORS OF THE nodes
+#MAKE A LEGEND
+
 
 
 def redraw_canvas(jsc):
@@ -269,7 +331,9 @@ def redraw_canvas(jsc):
         gBoundingBox = [0, 0, 0, 0];
         var oldtransform = gCtx.getTransform();
         gCtx.setTransform();
+        gCtx.fillStyle = "#F8F8F8";
         gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height);
+        gCtx.fillRect(0, 0, gCanvas.width, gCanvas.height);
         gCtx.setTransform(oldtransform);
     """
     for j in jsc.tag['gui_nodes'].values():

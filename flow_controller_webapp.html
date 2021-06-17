@@ -1,20 +1,49 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"
         integrity="sha512-bLT0Qm9VnAYZDflyKcBaQ2gg0hSYNQrJ8RilYldYQ1FxQYoCLtUjuuRuZo+fjqhx/qtq/1itJ0C2ejDxltZVFg==" crossorigin="anonymous"></script>
 
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/split.js/1.6.2/split.js"></script>
+
 <script type="text/javascript" src="canvas_viewport.js"></script>
+
 
 <link rel="stylesheet" href="flow_controller_webapp.css">
 
-<h1>Flow Controller</h1>
+
+
 
 <div id="contextMenu" onclick="contextMenuClicked">
-    <div class=contextMenuItem>Trigger</div>
-    <div class=contextMenuItem>Reset</div>
+    <div class=contextMenuItem>Trigger Job</div>
+    <div class=contextMenuItem>Set as Ready</div>
+    <div class=contextMenuItem>Set as Success</div>
+    <div class=contextMenuItem>Set as Fail</div>
 </div>
 
-<canvas id="myCanvas" width=100px height=100px style='border: solid 1px black;'></canvas>
-<br>
-<button onclick="canvasViewportAutofit(gBoundingBox);">Autofit</button><button>Refresh</button>
+<div id=splitmain class="split">
+    <div id="split-0" class="splitter_pane" style="background-color:#F8F8F8">
+        <div id=title style='position:absolute'>No Config File Loaded</div>
+        <a id=btn_autofit href='' class="button1" onclick="canvasViewportAutofit(gBoundingBox); return false;">Autofit</a>
+        <a id=btn_refresh href='' class="button1" onclick="force_refresh(); return false;">Refresh</a>
+        <div id=legend>
+            <span class="dot"></span>READY<br>
+            PENDING<br>
+            RUNNING<br>
+            SUCCESS<br>
+            FAIL<br>
+        </div>        
+        <canvas id="myCanvas" style="z-index:-1"></canvas>        
+    </div>
+    <div id="split-1" class="splitter_pane" style="display: flex; flex-direction: column;">
+        <div id="split-1-0">
+            <pre id=pre_log style='overflow:auto'>Click on a node in the tree to display the log</pre>
+        </div>
+        <div id="split-1-1">
+            <pre id=pre_status  style='overflow:auto'>Click on a node in the tree to display the status</pre>
+        </div>
+    </div>
+</div>
+
+
+    
 
 
 
@@ -30,6 +59,7 @@
     document.addEventListener("click", documentClick);
     window.addEventListener("resize", window_resize);
     gCanvas.addEventListener("contextmenu", contextMenuMaybe);
+    gCanvas.addEventListener("click", canvasClick);
 
     function documentClick(e) {
         var inside = (e.target.closest('#contextMenu'));
@@ -48,6 +78,13 @@
     // redraw the canvas with last known frame instructions
     function refreshCurrentCanvasFrame() {
         eval(gJSCanvasFrame);
+    }
+
+    function canvasClick(e) {
+        // translate back to normalized coordinates
+        nc = canvasViewportOffsetXYToAbsoluteXY(e.offsetX, e.offsetY);
+        call_py('canvas_click', nc[0], nc[1]); 
+        e.preventDefault();
     }
 
     function contextMenuMaybe(e) {
@@ -70,12 +107,50 @@
         call_py('context_menu_click', e.target.innerText, gContextMenuJobName);  
     }
 
+    function force_refresh(e) {
+        call_py('reconnect');
+    }
+
     // window resize handler
     function window_resize(e) {
+        $('#splitmain').height(window.innerHeight - ($('#splitmain').offset().top) - 8);
+        onDragEndHandler();
+    }
+
+    // drag end handler
+    function onDragEndHandler(e) {
+        var split0 = document.getElementById("split-0");
+
+        // manually subtract the gutter width
         var currentTransform = gCtx.getTransform();
-        gCanvas.width = window.innerWidth * 0.75;
-        gCanvas.height = window.innerHeight * 0.8;
+        $(gCanvas).css('margin-top', '4px')
+        $(gCanvas).css('margin-left', '4px')
+        gCanvas.width = split0.clientWidth - 8;
+        gCanvas.height = split0.clientHeight - 8;
         gCtx.setTransform(currentTransform);
         refreshCurrentCanvasFrame();
-}
+        
+        $('#pre_log').css('margin-top', '4px')
+        $('#pre_log').css('margin-left', '4px')
+        $('#pre_log').width($('#split-1-0').innerWidth() - 8);
+        $('#pre_log').height($('#split-1-0').innerHeight() - 8);
+
+        $('#btn_autofit').css({'left': (gCanvas.width - 200), 'top': (gCanvas.height - 24)});
+        $('#btn_refresh').css({'left': (gCanvas.width - 100), 'top': (gCanvas.height - 24)});
+
+        $('#legend').css({'left': 16,
+                          'top': gCanvas.height - $('#legend').height() - 8});
+
+        $('#pre_status').css('margin-top', '4px')
+        $('#pre_status').css('margin-left', '4px')
+        $('#pre_status').width($('#split-1-1').innerWidth() - 8);
+        $('#pre_status').height($('#split-1-1').innerHeight() - 8);
+        
+        
+    }
+
+    // setup the splits    
+    Split(['#split-0', '#split-1'], {onDragEnd:onDragEndHandler, sizes: [80, 20],})
+    Split(['#split-1-0', '#split-1-1'], {direction: 'vertical', onDragEnd:onDragEndHandler})
+    
 </script>

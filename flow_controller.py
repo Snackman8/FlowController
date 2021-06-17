@@ -16,18 +16,18 @@ import threading
 import xmlrpc
 from smq import SMQServer, SMQClient, SimpleXMLRPCServerEx
 import pandas as pd
-
-LOCK_FILENAME = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'flow_controller.lock')
+import subprocess
 
 SMQ_ClientName = 'FlowController_'
 SMQ_PUBLIST = ['FlowController.Started', 'FlowController.CQ_Response', 'FlowController.Changed']
 SMQ_SUBLIST = ['FlowController.CQ']
-CFG_NAME = ''
-SMQC = None
 
 
 STATE_READY = 'READY'
 STATE_PENDING = 'PENDING'
+STATE_RUNNING = 'RUNNING'
+STATE_SUCCESS = 'SUCCESS'
+STATE_FAIL = 'FAIL'
 
 class FlowControllerLedger():
     def __init__(self, ledger_dir, uid):
@@ -82,6 +82,7 @@ class FlowControllerJobReader():
             cfg['filename']
             cfg['uid']
             cfg['jobs']
+            cfg['joblog_dir']
         """
         self._cfg = existing_cfg
                 
@@ -89,6 +90,7 @@ class FlowControllerJobReader():
         self._job_dict = {}
         self._cron_job_names = []
         self._root_job_names = []
+        self._joblog_dir = self._cfg['joblog_dir']
         for j in self._cfg['jobs']:
             # build the job dictionary
             self._job_dict[j['name']] = j
@@ -103,6 +105,11 @@ class FlowControllerJobReader():
 
             # set the initial state
             j['state'] = j.get('state', STATE_READY)
+
+    def get_log_filename(self, job_name, date=None):
+        if date is None:
+            date = datetime.datetime.now()
+        return os.path.abspath(os.path.join(self._joblog_dir, f"{job_name}.{datetime.datetime.now().strftime('%Y%m%d')}.log"))
 
     def get_job_state(self, job_name):
         return self._job_dict[job_name]['state']
@@ -128,27 +135,16 @@ class FlowControllerJobReader():
                 
 
 class FlowControllerJobManager(FlowControllerJobReader):
-    def __init__(self, ledger_dir, cfg_filename):
+    def __init__(self, ledger_dir, cfg_filename, joblog_dir):
         # init
+        self._cfg_filename = cfg_filename
+        self._ledger_dir = ledger_dir
         self._set_state_queue = []
-        
-        # init the base FlowcontrollerJobReader
-        cfg = self._read_cfg_file(cfg_filename)
-        super().__init__(cfg)
-        
-        # init the ledger
-        self._ledger = FlowControllerLedger(ledger_dir, self.get_uid())
-        
-        # update the states from the ledger
-        df = self._ledger.read()
-        print(df)
-        for _, r in df.iterrows():
-            print(r)
-            for j in self._job_dict.values():
-                if j['name'] == r['job_name']:
-                    j['state'] = r['state']        
-        print(self._job_dict['get_data_premarket_TQQQ']['state'])
-        
+        self._joblog_dir = joblog_dir
+
+        # reload
+        self.reload()
+                
     def _read_cfg_file(self, cfg_filename):
         # execute the config to get the output
         proc = subprocess.Popen(['python3', cfg_filename], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -160,6 +156,8 @@ class FlowControllerJobManager(FlowControllerJobReader):
             sys.exit(1)    # EPERM
         cfg = ast.literal_eval(stdout.decode())
         cfg['filename'] = cfg_filename
+        cfg['joblog_dir'] = self._joblog_dir
+        print(cfg['title'])
         return cfg
 
     def handle_job_state_updates(self):
@@ -175,6 +173,21 @@ class FlowControllerJobManager(FlowControllerJobReader):
             changes = True
         return changes
 
+    def reload(self):
+        # init the base FlowcontrollerJobReader
+        cfg = self._read_cfg_file(self._cfg_filename)
+        super().__init__(cfg)
+        
+        # init the ledger
+        self._ledger = FlowControllerLedger(self._ledger_dir, self.get_uid())
+        
+        # update the states from the ledger
+        df = self._ledger.read()
+        for _, r in df.iterrows():
+            for j in self._job_dict.values():
+                if j['name'] == r['job_name']:
+                    j['state'] = r['state']        
+
     def set_job_state(self, job_name, new_state, reason):
         # append to the state manager
         self._set_state_queue.append((job_name, new_state, reason))
@@ -186,13 +199,13 @@ class FlowControllerJobManager(FlowControllerJobReader):
                 continue
 
             # skip job if it is not ready
-            if self.get_job_state(j['name']) != 'READY':
+            if self.get_job_state(j['name']) != STATE_READY:
                 continue
         
             # loop through the depends of the job and check for success
             trigger_job = True
             for jdn in j['depends']:
-                if self.get_job_state(jdn) != 'SUCCESS':
+                if self.get_job_state(jdn) != STATE_SUCCESS:
                     trigger_job = False
                     break
             if trigger_job:
@@ -313,7 +326,9 @@ class FlowControllerDiscoveryMixIn(FlowControllerMixInBase):
     
 class FlowControllerBase(FlowControllerMixInBase):
     def __init__(self):
+#        self._joblog_dir = None
         self._job_manager = None
+        self._job_pids = set()
         self._shutdown = False
         self._smq_uid = None
         self._smqc = None
@@ -356,24 +371,52 @@ class FlowControllerBase(FlowControllerMixInBase):
     def run_job_in_separate_process(self, job_name):
         # TODO: Change to process and track PIDs in self._job_pids
         def threadworker_run_job(job_name):
-            # blah blah do something
-            print('RUN JOB!', job_name)
-            time.sleep(2)
-            self._job_manager.set_job_state(job_name, 'SUCCESS', 'job completed')
+            job = self._job_manager.get_job_dict()[job_name]
+            proc = subprocess.Popen(job['run_cmd'], cwd=os.getcwd(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
 
-        print('run_job', job_name)
+            # setup the logger
+#            log_filename = os.path.abspath(os.path.join(self._joblog_dir, f"{job_name}.{datetime.datetime.now().strftime('%Y%m%d')}.log"))
+            log_filename = self._job_manager.get_log_filename(job_name)
+            print(log_filename)            
+            logger = logging.getLogger(f"{job_name}.{datetime.datetime.now().strftime('%Y%m%d')}")
+            logger.setLevel(logging.INFO)
+            if not logger.handlers:
+                file_handler = logging.FileHandler(filename=log_filename)
+                file_handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
+                logger.addHandler(file_handler)
+            
+            logger.info('')
+            logger.info('')
+            logger.info('FlowController Starting Job')
+            logger.info('')
+            logger.info('')
+            while True:
+                output = proc.stdout.readline()
+                if len(output) == 0 and proc.poll() is not None:
+                    break
+                if output:
+                    logger.info(output.strip().decode())
+                    logger.handlers[0].flush()
+            rc = proc.poll()
+            if rc == 0:
+                self._job_manager.set_job_state(job_name, STATE_SUCCESS, 'job completed')
+            else:
+                self._job_manager.set_job_state(job_name, STATE_FAIL, 'job completed')                
+            return rc
+
         t = threading.Thread(target=threadworker_run_job, args=(job_name,))
         t.start()
 
-    def start(self, smq_server_url, cfg_filename, ledger_dir, **kwargs):
+    def start(self, smq_server_url, cfg_filename, ledger_dir, joblog_dir, **kwargs):
         # init
         self._shutdown = False
+#        self._joblog_dir = joblog_dir
         
         # lock to pid
         self.pid_lock()
 
         # setup the job manager
-        self._job_manager = FlowControllerJobManager(ledger_dir, cfg_filename)
+        self._job_manager = FlowControllerJobManager(ledger_dir, cfg_filename, joblog_dir)
         
         # start the smq client
         self._smq_uid = SMQ_ClientName + self._job_manager.get_uid()        
@@ -388,9 +431,16 @@ class FlowControllerBase(FlowControllerMixInBase):
 
     def main_loop(self):
         last_print_time = datetime.datetime.now() - datetime.timedelta(seconds=60)
+        current_date = datetime.datetime.now().strftime('%Y%m%d')
         while not self._shutdown:
             # pid_verify
             self.pid_verify()
+
+            # check for a new day
+            if current_date != datetime.datetime.now().strftime('%Y%m%d'):
+                current_date = datetime.datetime.now().strftime('%Y%m%d')
+                self._job_manager.reload()                 
+                self._smqc.publish_message('FlowController.Changed', self._job_manager.get_uid())
 
             # handle job manager processing
             if self._job_manager.handle_job_state_updates():
@@ -404,7 +454,7 @@ class FlowControllerBase(FlowControllerMixInBase):
             
             # add pending jobs to the queue            
             for job_name in self._job_manager.query_job_names_by_state(STATE_PENDING):
-                self._job_manager.set_job_state(job_name, 'RUNNING', 'pending')                
+                self._job_manager.set_job_state(job_name, STATE_RUNNING, 'pending')                
                 self.run_job_in_separate_process(job_name)
 
             # trigger any jobs with dependencies met

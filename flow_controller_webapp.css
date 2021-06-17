@@ -1,16 +1,112 @@
 body {
-    font-family: Segoe UI, Frutiger, Dejavu Sans, Helvetica Neue, Arial, sans-serif;
+    font-family:'Roboto',sans-serif;
 }
 
 #contextmenu {
     border: solid 1px gray;
+    padding: 4px 0px 4px 0px;
+    border-radius: 8px;
+    background-color: #F0F0F0;
     position: absolute;
     top:0;
     left:0;
-    color:red;
+    color:black;
     display: none;
+    cursor: default;
+}
+
+.contextMenuItem {
+    padding: 4px 4px 4px 4px;
 }
 
 #contextmenu div:hover {
-    background-color: AntiqueWhite;
+    background-color: #FFFFFF;
 }
+
+.splitter_pane {
+    border: solid 1px black;
+    border-radius: 8px;
+}
+
+.split {
+    display: flex;
+    flex-direction: row;
+}
+
+.gutter {
+    background-color: #eee;
+    background-repeat: no-repeat;
+    background-position: 50%;
+}
+
+.gutter.gutter-horizontal {
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAeCAYAAADkftS9AAAAIklEQVQoU2M4c+bMfxAGAgYYmwGrIIiDjrELjpo5aiZeMwF+yNnOs5KSvgAAAABJRU5ErkJggg==');
+    cursor: col-resize;
+}
+
+.gutter.gutter-vertical {
+    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAAFAQMAAABo7865AAAABlBMVEVHcEzMzMzyAv2sAAAAAXRSTlMAQObYZgAAABBJREFUeF5jOAMEEAIEEFwAn3kMwcB6I2AAAAAASUVORK5CYII=');
+    cursor: row-resize;
+}
+
+#title {
+    margin-top: 4px;
+    margin-left: 4px;
+    padding-top: 16px;
+    padding-left: 16px;
+    padding-bottom: 4px;
+    padding-right: 4px;
+    font-size: 36px;
+    background-color: #F8F8F8;
+    color: steelblue;
+    
+}
+
+.button1 {
+    position: absolute;
+    display:inline-block;
+    padding:0.35em 1.2em;
+    border:0.1em solid #808080;
+    margin:0 0.3em 0.3em 0;
+    border-radius:0.42em;
+    box-sizing: border-box;
+    text-decoration:none;
+    font-family:'Roboto',sans-serif;
+    font-weight:300;
+    color:#808080;
+    background-color:#E8E8E8;
+    text-align:center;
+    transition: all 0.2s;
+}
+
+a.button1:hover{
+    color:#FFFFFF;
+    background-color:#808080;
+}
+
+#legend {
+    position: absolute;
+    border: solid 1px black;
+    width: 90px;
+    padding: 8px 8px 8px 8px;
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+.dot {
+  height: 10px;
+  width: 10px;
+  background-color: #bbb;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 10px;
+}
+
+/*
+@media all and (max-width:30em){
+ a.button1{
+  display:block;
+  margin:0.4em auto;
+ }
+}
+*/

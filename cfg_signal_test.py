@@ -1,17 +1,18 @@
 CFG_UID = 'signal_test'
-
+CFG_TITLE = 'Test Config For Flow Controller'
 
 def get_jobs():
     return [
         # premarket parent node for gui
         {'name': 'premarket_data',
          'x_offset': 0,
-         'y_offset': 0},
+         'y_offset': 0,
+         'width': 100},
 
         # premarket for TQQQ
         {'name': 'get_data_premarket_TQQQ',
          'cron': '15 6 * * 1-5',     # runs at 6:15am
-         'run_python_script': 'data/get_data_alpha_vantage.py TQQQ',
+         'run_cmd': './echo_sleep_job.py --echo_text "AAAAA" --sleep_time 5',
          'depends': ['premarket_data']},
 
         # premarket for UDOW
@@ -152,6 +153,7 @@ def get_jobs():
 if __name__ == '__main__':
     # print the info to stdout
     cfg = {
-        'uid': CFG_UID,
+        'title': CFG_TITLE,
+        'uid': CFG_UID,        
         'jobs': get_jobs()}
     print(cfg)
