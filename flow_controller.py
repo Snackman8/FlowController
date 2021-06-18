@@ -141,6 +141,7 @@ class FlowControllerJobManager(FlowControllerJobReader):
         self._ledger_dir = ledger_dir
         self._set_state_queue = []
         self._joblog_dir = joblog_dir
+        self._reload_needed = False
 
         # reload
         self.reload()
@@ -188,6 +189,9 @@ class FlowControllerJobManager(FlowControllerJobReader):
                 if j['name'] == r['job_name']:
                     j['state'] = r['state']        
 
+    def request_reload_cfg(self):
+        self._reload_needed = True
+
     def set_job_state(self, job_name, new_state, reason):
         # append to the state manager
         self._set_state_queue.append((job_name, new_state, reason))
@@ -220,6 +224,10 @@ class FlowControllerRPCClient():
         with xmlrpc.client.ServerProxy(self._rpc_url, allow_none=True) as sp:
             current_cfg = sp.get_current_cfg()
             return FlowControllerJobReader(current_cfg)
+
+    def reload_cfg(self):
+        with xmlrpc.client.ServerProxy(self._rpc_url, allow_none=True) as sp:
+            sp.reload_cfg()
 
     def set_job_state(self, job_name, new_state, reason):
         with xmlrpc.client.ServerProxy(self._rpc_url, allow_none=True) as sp:
@@ -261,6 +269,7 @@ class FlowControllerRPCMixIn(FlowControllerMixInBase):
         # init the rpc server
         self._rpc_server = SimpleXMLRPCServerEx(('', 0), allow_none=True, logRequests=False)
         self._rpc_server.register_function(lambda: self._job_manager._cfg, 'get_current_cfg')
+        self._rpc_server.register_function(lambda: self._job_manager.request_reload_cfg(), 'reload_cfg')
         self._rpc_server.register_function(
             lambda job_name, new_state, reason: self._job_manager.set_job_state(job_name, new_state, reason),
             'set_job_state')
@@ -435,6 +444,12 @@ class FlowControllerBase(FlowControllerMixInBase):
         while not self._shutdown:
             # pid_verify
             self.pid_verify()
+            
+            # check if we need to reload
+            if self._job_manager._reload_needed:
+                self._job_manager._reload_needed = False
+                self._job_manager.reload()
+                self._smqc.publish_message('FlowController.Changed', self._job_manager.get_uid())
 
             # check for a new day
             if current_date != datetime.datetime.now().strftime('%Y%m%d'):

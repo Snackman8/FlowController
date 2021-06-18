@@ -88,12 +88,14 @@ def get_jobs():
          'run_python_script': 'signals/momentum_signal.py',
          'depends': ['inflow_paycheck_signal', 'get_data_premarket_TQQQ', 'get_data_premarket_UDOW', 'get_data_premarket_SPXL', 'get_data_premarket_TNA', 'earnings_soon_signal'],
          'x_offset': 0,
-         'y_offset': -100},
+         'y_offset': -100,
+         'width': 200},
 
         # buy sell
         {'name': 'morning_buy_sell',
          'run_python_script': 'staging/generate_buy_sell.py',
-         'depends': ['morning_momentum_signal']},
+         'depends': ['morning_momentum_signal'],
+         'width': 200},
 
         # execute etf
         {'name': 'morning_execute_etf_trades',
@@ -120,12 +122,14 @@ def get_jobs():
          'run_python_script': 'signals/momentum_signal.py',
          'depends': ['inflow_paycheck_signal', 'get_data_afterhours_TQQQ', 'get_data_afterhours_UDOW', 'get_data_afterhours_SPXL', 'get_data_afterhours_TNA', 'earnings_soon_signal'],
          'x_offset': 0,
-         'y_offset': 150},
+         'y_offset': 150,
+         'width': 200},
 
         # buy sell
         {'name': 'afternoon_buy_sell',
          'run_python_script': 'staging/generate_buy_sell.py',
-         'depends': ['afternoon_momentum_signal']},
+         'depends': ['afternoon_momentum_signal'],
+         'width': 200},
 
         # execute etf
         {'name': 'afternoon_execute_etf_trades',

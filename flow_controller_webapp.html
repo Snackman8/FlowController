@@ -9,17 +9,27 @@
 <link rel="stylesheet" href="flow_controller_webapp.css">
 
 
-<div id="contextMenu" onclick="contextMenuClicked">
+<div id="contextMenu">
     <div class=contextMenuItem>Trigger Job</div>
     <div class=contextMenuItem>Set as Ready</div>
     <div class=contextMenuItem>Set as Success</div>
     <div class=contextMenuItem>Set as Fail</div>
 </div>
 
+<div id="adminMenu">
+    <div class=adminMenuItem onclick="adminMenuClicked(this);">Reload Config</div>
+    <div class=adminMenuItem onclick="adminMenuClicked(this)">Autofit</div>
+    <div class=adminMenuItem onclick="adminMenuClicked(this)">Refresh</div>
+</div>
+
 
 <div id=splitmain class="split">
     <div id="split-0" class="splitter_pane" style="background-color:#F8F8F8">
         <div id=title style='position:absolute'>No Config File Loaded</div>
+        <a id=btn_hamburger   class="button1" onclick="$('#adminMenu').css('display', 'block'); return false;">            
+            <div></div><div></div><div></div>
+        </a>
+        
         <a id=btn_login   href='/login' class="button1" >Login</a>
         <a id=btn_logout   href='/logout' class="button1" >Logout</a>
         <a id=btn_autofit href='' class="button1" onclick="canvasViewportAutofit(gBoundingBox); return false;">Autofit</a>
@@ -60,9 +70,17 @@
 
     function documentClick(e) {
         var inside = (e.target.closest('#contextMenu'));
+        console.log(inside);
         if(!inside) {
             $('#contextMenu').css('display', 'none');
-        }        
+            inside = e.target.closest('#btn_hamburger');
+            if (!inside) {
+                $('#adminMenu').css('display', 'none');
+            }
+        }
+
+
+                
     }
 
     // document ready handler
@@ -100,6 +118,7 @@
 
     function contextMenuClicked(e) {
         // jquery event handler
+        console.log(e.target.innerText);
         $('#contextMenu').css('display', 'none');
         call_py('context_menu_click', e.target.innerText, gContextMenuJobName);  
     }
@@ -137,6 +156,7 @@
         $('#btn_login').css({'left': (gCanvas.width - 80), 'top': gCanvas.offsetTop + 8});
         $('#btn_logout').css({'left': (gCanvas.width - 84), 'top': gCanvas.offsetTop + 8});
         $('#user').css({'left': (gCanvas.width - $('#user').width() - 84), 'top': gCanvas.offsetTop + 50});
+        $('#btn_hamburger').css({'left': 20, 'top': 30});
 
         $('#legend').css({'left': 16,
                           'top': gCanvas.height - $('#legend').height() - 8});
@@ -147,6 +167,13 @@
         $('#pre_status').height($('#split-1-1').innerHeight() - 8);
         
         
+    }
+
+    function adminMenuClicked(e) {
+        // jquery event handler
+        $('#contextMenu').css('display', 'none');
+        console.log('AA');
+        call_py('admin_menu_click', event.target.innerText);  
     }
 
     // setup the splits    

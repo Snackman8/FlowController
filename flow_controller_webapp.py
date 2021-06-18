@@ -26,7 +26,15 @@ COLOR_MAPPING = {
     STATE_RUNNING: 'mediumaquamarine',
     STATE_SUCCESS: 'seagreen',
     STATE_FAIL: 'firebrick',
-    }
+}
+
+LINK_COLOR_MAPPING = {
+    STATE_READY: '#B0B0B0',
+    STATE_PENDING: 'lightsalmon',
+    STATE_RUNNING: 'mediumaquamarine',
+    STATE_SUCCESS: 'seagreen',
+    STATE_FAIL: 'firebrick',
+}
 
 
 # --------------------------------------------------
@@ -98,10 +106,7 @@ def _convert_job_to_guinode(j):
 
     job_state = gn['state']
     gn['icon_color'] = COLOR_MAPPING.get(job_state, 'gainsboro')
-    
-
-    if gn['name'] == 'premarket_data':
-        print(gn)
+    gn['link_color'] = LINK_COLOR_MAPPING.get(job_state, 'gainsboro')
 
     # success!
     return gn
@@ -166,6 +171,7 @@ def _generate_draw_job_node_js(jsc, node_info):
         js = f"""
             gCtx.beginPath();
             gCtx.strokeStyle = "{node_info['icon_color']}";
+            gCtx.strokeStyle = "#B0B0B0";
             gCtx.fillStyle = "{node_info['icon_color']}";
             gCtx.arc({node_info['x_render']}, {node_info['y_render']}, {node_info['icon_radius']}, 0, Math.PI * 2, true);
             gCtx.stroke();
@@ -209,7 +215,7 @@ def _generate_draw_job_node_js(jsc, node_info):
             cy2 = f"""({sy} + ({ey} - {sy}) * {pc[1][1]})"""
             js += f"""
             gCtx.beginPath();
-            gCtx.strokeStyle = "{p['icon_color']}";
+            gCtx.strokeStyle = "{p['link_color']}";
             gCtx.moveTo({sx}, {sy});
             gCtx.bezierCurveTo({cx1}, {cy1}, {cx2}, {cy2}, {ex}, {ey});
             gCtx.stroke();
@@ -221,6 +227,17 @@ def _generate_draw_job_node_js(jsc, node_info):
 # --------------------------------------------------
 #    Javascript Callbacks
 # --------------------------------------------------
+def admin_menu_click(jsc, item_text):
+    if item_text == 'Reload Config':
+        jsc.tag['FlowControllerRPC'].reload_cfg()
+
+    if item_text == 'Autofit':
+        jsc.eval_js_code(blocking=False, js_code="""$('#btn_autofit').click()""")
+        
+    if item_text == 'Refresh':
+        reconnect(jsc)
+
+
 def context_menu_click(jsc, item_text, job_name):
     if item_text == 'Trigger Job':
         jsc.tag['FlowControllerRPC'].trigger_job(job_name, reason='Manually triggered by user ?')
@@ -262,9 +279,6 @@ def canvas_click(jsc, x, y):
                     s = f"<span style='color:red'>This job may not have run for today yet.</span>\n\nlog file at {log_filename} does not exist."
                 jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_log').html(`{s}`)""")
                 
-                
-                
-#                print('****', j['name'], 'clicked!')
                 return
 
 
@@ -326,14 +340,6 @@ def refresh_gui_nodes(jsc):
     jsc.eval_js_code(blocking=False, js_code=f"""$('#title').html("{jsc.tag['FlowControllerJobsSnapshot']._cfg['title']}");""")
          
     jsc.tag['gui_nodes'] = _convert_cfg_to_gui_nodes(jsc.tag['FlowControllerJobsSnapshot'])
-
-
-
-#THE TITLE DOES NOT WORK!!!!!
-#FIX THE COLORS OF THE nodes
-#MAKE A LEGEND
-
-
 
 def redraw_canvas(jsc):
     js = """
