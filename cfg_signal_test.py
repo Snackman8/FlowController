@@ -11,7 +11,7 @@ def get_jobs():
 
         # premarket for TQQQ
         {'name': 'get_data_premarket_TQQQ',
-         'cron': '15 6 * * 1-5',     # runs at 6:15am
+         'cron': '0 11 * * 1-5',     # runs at 6:15am
          'run_cmd': './echo_sleep_job.py --echo_text "AAAAA" --sleep_time 5',
          'depends': ['premarket_data']},
 

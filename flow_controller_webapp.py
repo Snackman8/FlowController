@@ -311,6 +311,8 @@ def ready(jsc, *args):
         jsc.eval_js_code(blocking=False, js_code="$('#btn_login').css('display', 'inline-block')")
         jsc.eval_js_code(blocking=False, js_code="$('#btn_logout').css('display', 'none')")
         jsc.eval_js_code(blocking=False, js_code="$('#btn_logout').html('Logout')")
+        jsc.eval_js_code(blocking=False, js_code="$('#adminMenu').addClass('disabled')")
+        jsc.eval_js_code(blocking=False, js_code="$('#contextMenu').addClass('disabled')")
 
 
 def reconnect(jsc, *args):

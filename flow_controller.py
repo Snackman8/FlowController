@@ -187,7 +187,12 @@ class FlowControllerJobManager(FlowControllerJobReader):
         for _, r in df.iterrows():
             for j in self._job_dict.values():
                 if j['name'] == r['job_name']:
-                    j['state'] = r['state']        
+                    j['state'] = r['state']
+        
+        # setup the next cron job fire time
+        base = datetime.datetime.now()
+        for cjn in self.query_cron_job_names():
+            self.update_next_cron_fire_time(cjn, base)            
 
     def request_reload_cfg(self):
         self._reload_needed = True
@@ -214,6 +219,10 @@ class FlowControllerJobManager(FlowControllerJobReader):
                     break
             if trigger_job:
                 self.set_job_state(j['name'], STATE_PENDING, 'Dependencies Ready')            
+
+    def update_next_cron_fire_time(self, job_name, base):
+        iter = croniter.croniter(self._job_dict[job_name]['cron'], base)
+        self._job_dict[job_name]['next_cron_fire_time'] = iter.get_next(datetime.datetime)
 
 
 class FlowControllerRPCClient():
@@ -439,7 +448,7 @@ class FlowControllerBase(FlowControllerMixInBase):
         self._shutdown = True
 
     def main_loop(self):
-        last_print_time = datetime.datetime.now() - datetime.timedelta(seconds=60)
+        last_cron_check = datetime.datetime.now() - datetime.timedelta(seconds=60)
         current_date = datetime.datetime.now().strftime('%Y%m%d')
         while not self._shutdown:
             # pid_verify
@@ -463,9 +472,14 @@ class FlowControllerBase(FlowControllerMixInBase):
             
             # handle any cron jobs that are ready to fire
             date = datetime.datetime.now()
-            if date > last_print_time + datetime.timedelta(seconds=60):
-                last_print_time = date
-                print(date)
+            if date > last_cron_check + datetime.timedelta(seconds=60):
+                last_cron_check = date
+                
+                # find all the cron jobs
+                for cjn in self._job_manager.query_cron_job_names():
+                    if date > self._job_manager._job_dict[cjn]['next_cron_fire_time']:
+                        self._job_manager.update_next_cron_fire_time(cjn, date)
+                        self._job_manager.set_job_state(cjn, STATE_PENDING, 'cron fire time')
             
             # add pending jobs to the queue            
             for job_name in self._job_manager.query_job_names_by_state(STATE_PENDING):
