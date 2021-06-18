@@ -22,7 +22,7 @@ from astroid import nodes
 SMQC = None
 
 COLOR_MAPPING = {
-    STATE_READY: 'gold',
+    STATE_READY: '#FFEF02',
     STATE_PENDING: 'lightsalmon',
     STATE_RUNNING: 'mediumaquamarine',
     STATE_SUCCESS: 'seagreen',
@@ -101,6 +101,9 @@ def _convert_job_to_guinode(j):
     gn['icon_color'] = COLOR_MAPPING.get(job_state, 'gainsboro')
     
 
+    if gn['name'] == 'premarket_data':
+        print(gn)
+
     # success!
     return gn
 
@@ -141,7 +144,7 @@ def _convert_cfg_to_gui_nodes(job_reader_snapshot):
         if j['parents']:
             if j['parents'][0]['name'] in processed:
                 # parent already processed so we can computer our x and y
-                j['x'] = j['parents'][0]['x_render'] + j['width']
+                j['x'] = j['parents'][0]['x_render'] + j['parents'][0]['width']
                 j['y'] = j['parents'][0]['y_render'] + (len(j['parents'][0]['children_rendered']) - (len(j['parents'][0]['children']) - 1) / 2.0) * 30
                 j['parents'][0]['children_rendered'].append(j)
             else:
@@ -287,6 +290,14 @@ def ready(jsc, *args):
     
     reconnect(jsc)
     jsc.eval_js_code(blocking=False, js_code="canvasViewportAutofit(gBoundingBox)")
+    if jsc.user is not None:
+        jsc.eval_js_code(blocking=False, js_code="$('#btn_login').css('display', 'none')")
+        jsc.eval_js_code(blocking=False, js_code=f"$('#btn_logout').html('Logout<br><br>{jsc.user.decode()}')")
+        jsc.eval_js_code(blocking=False, js_code="$('#btn_logout').css('display', 'inline-block')")
+    else:
+        jsc.eval_js_code(blocking=False, js_code="$('#btn_login').css('display', 'inline-block')")
+        jsc.eval_js_code(blocking=False, js_code="$('#btn_logout').css('display', 'none')")
+        jsc.eval_js_code(blocking=False, js_code="$('#btn_logout').html('Logout')")
 
 
 def reconnect(jsc, *args):
@@ -372,7 +383,9 @@ def run(args):
  
     atexit.register(lambda: SMQC.shutdown())
     
-    run_pylinkjs_app(default_html='flow_controller_webapp.html', port=7010)
+    login_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_login.html')
+
+    run_pylinkjs_app(default_html='flow_controller_webapp.html', port=7010, login_html_page=login_html_page)
 
 
 if __name__ == "__main__":

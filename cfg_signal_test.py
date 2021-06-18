@@ -7,7 +7,7 @@ def get_jobs():
         {'name': 'premarket_data',
          'x_offset': 0,
          'y_offset': 0,
-         'width': 100},
+         'width': 200},
 
         # premarket for TQQQ
         {'name': 'get_data_premarket_TQQQ',
@@ -37,7 +37,8 @@ def get_jobs():
         # aftermarket parent node for gui
         {'name': 'cron_jobs',
          'x_offset': 0,
-         'y_offset': 150},
+         'y_offset': 150,
+         'width': 200},
 
         # inflow paycheck signal
         {'name': 'inflow_paycheck_signal',
@@ -54,7 +55,8 @@ def get_jobs():
         # aftermarket parent node for gui
         {'name': 'afterhours_data',
          'x_offset': 0,
-         'y_offset': 300},
+         'y_offset': 300,
+         'width': 200},
 
         # afterhours for TQQQ
         {'name': 'get_data_afterhours_TQQQ',

@@ -1,0 +1,46 @@
+<style>
+body {
+    background-color: #F8F8F8;
+    font-family:'Roboto',sans-serif;;
+}
+
+.center-screen {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    min-height: 100vh;
+}
+.inner {
+    border: solid 1px grey;
+    border-radius: 8px;
+    padding: 40px 40px 40px 40px;
+}
+
+td {
+    padding-right: 10px;
+    font-size: 24px;
+}
+
+#btn_submit {
+    font-size: 24px;
+}
+
+</style>
+
+<div class=center-screen>
+<div class=inner>
+<img src='fake_logo.png'>
+<br>
+<br>
+<form action="/login?next={next_url}" method="post">
+<table>
+<tr><td>Username</td><td><input type="text" name="name"></td></tr>
+<tr><td>Password</td><td><input type="password" name="password"></td></tr>
+<tr><td>&nbsp;</td></tr>
+<tr><td colspan=2><center><input id=btn_submit type="submit" value="Login"></center></td></tr>
+</table>
+</form>
+</div>
+</div>
