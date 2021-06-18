@@ -1,5 +1,5 @@
 CFG_UID = 'signal_test'
-CFG_TITLE = 'Test Config For Flow Controller'
+CFG_TITLE = "Sample Test Config For Flow Controller"
 
 def get_jobs():
     return [

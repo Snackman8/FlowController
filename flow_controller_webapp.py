@@ -352,6 +352,11 @@ def redraw_canvas(jsc):
         gCtx.fillStyle = "#F8F8F8";
         gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height);
         gCtx.fillRect(0, 0, gCanvas.width, gCanvas.height);
+        
+        var wh = Math.min(gCanvas.width, gCanvas.height) * 0.85;
+        gCtx.globalAlpha = 0.2;
+        gCtx.drawImage(gLogoImg, (gCanvas.width - wh) / 2, (gCanvas.height - wh) / 2, wh, wh);
+        gCtx.globalAlpha = 1;
         gCtx.setTransform(oldtransform);
     """
     for j in jsc.tag['gui_nodes'].values():

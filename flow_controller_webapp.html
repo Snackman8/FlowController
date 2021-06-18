@@ -61,6 +61,7 @@
     var gContextMenuJobName;
     var gCtx = gCanvas.getContext("2d");
     var gJSCanvasFrame = '';
+    var gLogoImg = new Image();
 
     // add window resize listener
     document.addEventListener("click", documentClick);
@@ -175,6 +176,8 @@
         console.log('AA');
         call_py('admin_menu_click', event.target.innerText);  
     }
+
+    gLogoImg.src = '/fake_logo.png';
 
     // setup the splits    
     Split(['#split-0', '#split-1'], {onDragEnd:onDragEndHandler, sizes: [80, 20],})
