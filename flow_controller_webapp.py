@@ -13,7 +13,6 @@ from smq import SMQClient
 import atexit
 import xmlrpc
 import croniter
-from astroid import nodes
 
 
 # --------------------------------------------------
