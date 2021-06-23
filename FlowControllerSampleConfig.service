@@ -14,5 +14,5 @@ Type=simple
 User=FlowController
 Restart=on-failure
 KillSignal=SIGINT
-ExecStart=/usr/bin/python3 -m FlowController --smq_server $SMQ_SERVER --config $CFG_FILE --ledger_dir LEDGER_DIR --joblog_dir JOBLOG_DIR
+ExecStart=/usr/bin/python3 -m FlowController --smq_server $SMQ_SERVER --config $CFG_FILE --ledger_dir $LEDGER_DIR --joblog_dir $JOBLOG_DIR
 StandardError=append:/var/log/FlowController.log
