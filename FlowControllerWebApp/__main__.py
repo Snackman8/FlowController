@@ -7,9 +7,9 @@ import traceback
 import argparse
 import time
 from pylinkjs.PyLinkJS import run_pylinkjs_app, get_all_jsclients
-from flow_controller import FlowController, FlowControllerRPCClient
-from flow_controller import STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL
-from smq import SMQClient
+from FlowController import FlowController, FlowControllerRPCClient
+from FlowController import STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL
+from SimpleMessageQueue import SMQClient
 import atexit
 import xmlrpc
 import croniter
@@ -311,8 +311,8 @@ def ready(jsc, *args):
         jsc.eval_js_code(blocking=False, js_code="$('#btn_login').css('display', 'inline-block')")
         jsc.eval_js_code(blocking=False, js_code="$('#btn_logout').css('display', 'none')")
         jsc.eval_js_code(blocking=False, js_code="$('#btn_logout').html('Logout')")
-        jsc.eval_js_code(blocking=False, js_code="$('#adminMenu').addClass('disabled')")
-        jsc.eval_js_code(blocking=False, js_code="$('#contextMenu').addClass('disabled')")
+#        jsc.eval_js_code(blocking=False, js_code="$('#adminMenu').addClass('disabled')")
+#        jsc.eval_js_code(blocking=False, js_code="$('#contextMenu').addClass('disabled')")
 
 
 def reconnect(jsc, *args):
@@ -396,8 +396,9 @@ def run(args):
     atexit.register(lambda: SMQC.shutdown())
     
     login_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_login.html')
+    default_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_webapp.html')
 
-    run_pylinkjs_app(default_html='flow_controller_webapp.html', port=7010, login_html_page=login_html_page)
+    run_pylinkjs_app(default_html=default_html_page, port=7010, login_html_page=login_html_page, html_dir=os.path.dirname(__file__))
 
 
 if __name__ == "__main__":

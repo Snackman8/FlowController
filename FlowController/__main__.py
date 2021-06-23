@@ -41,8 +41,6 @@ if __name__ == "__main__":
         parser.add_argument('--log_level', default=logging.INFO)
         args = parser.parse_args()
 
-        args = parser.parse_args()
-
         # switch logging level
         root = logging.getLogger()
         root.setLevel(args.log_level)

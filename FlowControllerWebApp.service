@@ -1,0 +1,12 @@
+[Unit]
+Description=Web GUI For FlowController
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=simple
+User=FlowController
+Restart=on-failure
+ExecStart=/usr/bin/python3 -m FlowControllerWebApp
+StandardError=append:/var/log/FlowControllerWebApp.log

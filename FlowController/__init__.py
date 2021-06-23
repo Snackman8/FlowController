@@ -354,7 +354,7 @@ class FlowControllerBase(FlowControllerMixInBase):
     def pid_lock(self):
         try:
             # check for pid lock file
-            lock_filename = os.path.splitext(os.path.basename(__file__))[0] + '.lock'
+            lock_filename = os.path.splitext(self._job_manager._cfg_filename)[0] + '.lock'
             if os.path.exists(lock_filename):
                 raise Exception(f'Error!  The lockfile {lock_filename} exists so another instance may be already running.  ' +
                                 'If you are sure there is no other instance running, please delete the lockfile to continue.')
@@ -377,7 +377,7 @@ class FlowControllerBase(FlowControllerMixInBase):
 
     def pid_verify(self):
         try:
-            lock_filename = os.path.splitext(os.path.basename(__file__))[0] + '.lock'
+            lock_filename = os.path.splitext(self._job_manager._cfg_filename)[0] + '.lock'
             with open(lock_filename, 'r') as f:
                 s = f.read()
                 if str(os.getpid()) != s:
@@ -430,11 +430,11 @@ class FlowControllerBase(FlowControllerMixInBase):
         self._shutdown = False
 #        self._joblog_dir = joblog_dir
         
-        # lock to pid
-        self.pid_lock()
-
         # setup the job manager
         self._job_manager = FlowControllerJobManager(ledger_dir, cfg_filename, joblog_dir)
+
+        # lock to pid
+        self.pid_lock()
         
         # start the smq client
         self._smq_uid = SMQ_ClientName + self._job_manager.get_uid()        
