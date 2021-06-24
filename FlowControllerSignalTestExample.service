@@ -1,11 +1,11 @@
 [Unit]
-Description=Sample Config for Flow Controller
+Description=Run Sample Example Config for Flow Controller
 
 [Install]
 WantedBy=multi-user.target
 
 [Service]
-Environment="CFG_FILE=/var/lib/FlowController/sample_configs_and_jobs/cfg_signal_test.py"
+Environment="CFG_FILE=/var/lib/FlowController/sample_configs_and_jobs/signal_test_example.py.cfg"
 Environment="SMQ_SERVER=localhost:6500"
 Environment="LEDGER_DIR=/var/local/FlowController/ledgers"
 Environment="JOBLOG_DIR=/var/log/FlowController/joblogs"

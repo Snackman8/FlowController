@@ -17,7 +17,7 @@ def run(args):
     print("ECHO SLEEP JOB")
     print(f"PID = {os.getpid()}")
     print(f"ECHO TEXT = {args['echo_text']}")
-    
+
     # sleep
     time.sleep(int(args['sleep_time']))
 
@@ -32,6 +32,6 @@ if __name__ == "__main__":
     parser.add_argument('--echo_text')
     parser.add_argument('--sleep_time')
     args = parser.parse_args()
-    
+
     # run
     run(vars(args))

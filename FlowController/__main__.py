@@ -6,6 +6,7 @@ import traceback
 import argparse
 from FlowController import FlowController
 
+
 def _init_logging():
     """ setup logging, will automatically create log file with same name as this file """
     # setup logging
@@ -23,8 +24,10 @@ def _init_logging():
 
 def run(args):
     fc = FlowController()
-    fc.start(smq_server_url=args['smq_server'], cfg_filename=args['config'], ledger_dir=args['ledger_dir'], joblog_dir=args['joblog_dir'])
+    fc.start(smq_server_url=args['smq_server'], cfg_filename=args['config'], ledger_dir=args['ledger_dir'],
+             joblog_dir=args['joblog_dir'])
     fc.main_loop()
+
 
 if __name__ == "__main__":
     # init the loggers

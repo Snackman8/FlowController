@@ -18,12 +18,19 @@ sudo cp -r sample_cfgs_and_jobs/* /var/lib/FlowController/sample_configs_and_job
 sudo chown -R FlowController:FlowController /var/lib/FlowController/sample_configs_and_jobs
 
 # install to systemd
-sudo cp ./FlowControllerSampleConfig.service /etc/systemd/system/
-sudo chown root:root /etc/systemd/system/FlowControllerSampleConfig.service
-sudo chmod 644 /etc/systemd/system/FlowControllerSampleConfig.service
+sudo cp ./FlowControllerSimpleExample.service /etc/systemd/system/
+sudo chown root:root /etc/systemd/system/FlowControllerSimpleExample.service
+sudo chmod 644 /etc/systemd/system/FlowControllerSimpleExample.service
 sudo systemctl daemon-reload
-sudo systemctl enable FlowControllerSampleConfig
-sudo systemctl restart FlowControllerSampleConfig
+sudo systemctl enable FlowControllerSimpleExample.service
+sudo systemctl restart FlowControllerSimpleExample.service
+
+sudo cp ./FlowControllerSignalTestExample.service /etc/systemd/system/
+sudo chown root:root /etc/systemd/system/FlowControllerSignalTestExample.service
+sudo chmod 644 /etc/systemd/system/FlowControllerSignalTestExample.service
+sudo systemctl daemon-reload
+sudo systemctl enable FlowControllerSignalTestExample.service
+sudo systemctl restart FlowControllerSignalTestExample.service
 
 sudo cp ./FlowControllerWebApp.service /etc/systemd/system/
 sudo chown root:root /etc/systemd/system/FlowControllerWebApp.service

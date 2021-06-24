@@ -177,7 +177,8 @@
         call_py('admin_menu_click', event.target.innerText);  
     }
 
-    gLogoImg.src = '/fake_logo.png';
+    gLogoImg.src = '';
+//    gLogoImg.src = '/fake_logo2.png';
 
     // setup the splits    
     Split(['#split-0', '#split-1'], {onDragEnd:onDragEndHandler, sizes: [80, 20],})

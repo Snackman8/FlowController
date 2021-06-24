@@ -1,14 +1,22 @@
 # --------------------------------------------------
 #    Imports
 # --------------------------------------------------
+import base64
 import logging
 import os
 import traceback
 import argparse
+import sys
 import time
 from pylinkjs.PyLinkJS import run_pylinkjs_app, get_all_jsclients
-from FlowController import FlowController, FlowControllerRPCClient
-from FlowController import STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL
+try:
+    from FlowController import FlowController, FlowControllerRPCClient
+    from FlowController import STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL
+except Exception as _:
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+    from FlowController import FlowController, FlowControllerRPCClient
+    from FlowController import STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL
+
 from SimpleMessageQueue import SMQClient
 import atexit
 import xmlrpc
@@ -46,20 +54,20 @@ def _pretty_cron(s):
         retval = '['
         f = s.split(' ')
         if f[0] != '*' and f[1] != '*':
-            retval += f"{int(f[1]):02}:{int(f[0]):02}" + ' ' 
+            retval += f"{int(f[1]):02}:{int(f[0]):02}" + ' '
 
         if f[2] != '*' or f[3] != '*':
             raise Exception('Can not handle day and month yet')
 
         if f[4] != '*':
             ff = f[4].split('-')
-            if len(ff) not in (1,2):
+            if len(ff) not in (1, 2):
                 raise Exception(f'Can not handle day of week format of {f[4]}')
             retval += dayofweek[int(ff[0])]
             if len(ff) == 2:
                 retval += '-' + dayofweek[int(ff[1])]
-            retval += ' '            
-    except:        
+            retval += ' '
+    except Exception as _:
         retval = '[? '
     return retval[:-1] + '] '
 
@@ -91,7 +99,7 @@ def _convert_job_to_guinode(j):
     # if no depends, then we don't show an icon
     if not gn['depends']:
         gn['icon_shape'] = 'none'
-        gn['no_context_menu'] = True    
+        gn['no_context_menu'] = True
 
     # add a pretty cron
     if gn['text_prefix'] == '':
@@ -114,12 +122,8 @@ def _convert_job_to_guinode(j):
 
 def _convert_cfg_to_gui_nodes(job_reader_snapshot):
     # convert the cfg nodes to gui nodes
-#     fcj = FlowControllerJobs()
-#     fcj.load_from_existing_cfg(cfg['_cfg'])
-#     jobs = fcj.get_jobs()    
-
     gui_jobs = job_reader_snapshot.get_job_dict()
-    gui_jobs = {k:_convert_job_to_guinode(v) for k, v in gui_jobs.items()}
+    gui_jobs = {k: _convert_job_to_guinode(v) for k, v in gui_jobs.items()}
 
     # repoint the depends to parent gui nodes, and find roots at the same time
     stack = []
@@ -149,7 +153,8 @@ def _convert_cfg_to_gui_nodes(job_reader_snapshot):
             if j['parents'][0]['name'] in processed:
                 # parent already processed so we can computer our x and y
                 j['x'] = j['parents'][0]['x_render'] + j['parents'][0]['width']
-                j['y'] = j['parents'][0]['y_render'] + (len(j['parents'][0]['children_rendered']) - (len(j['parents'][0]['children']) - 1) / 2.0) * 30
+                j['y'] = j['parents'][0]['y_render'] + (len(j['parents'][0]['children_rendered']) -
+                                                        (len(j['parents'][0]['children']) - 1) / 2.0) * 30
                 j['parents'][0]['children_rendered'].append(j)
             else:
                 # parent hasn't been processed yet, so reinsert into the stack
@@ -164,6 +169,7 @@ def _convert_cfg_to_gui_nodes(job_reader_snapshot):
         j['y_rendertext'] = j['y_render']
 
     return gui_jobs
+
 
 def _generate_draw_job_node_js(jsc, node_info):
     js = ""
@@ -233,7 +239,7 @@ def admin_menu_click(jsc, item_text):
 
     if item_text == 'Autofit':
         jsc.eval_js_code(blocking=False, js_code="""$('#btn_autofit').click()""")
-        
+
     if item_text == 'Refresh':
         reconnect(jsc)
 
@@ -252,7 +258,6 @@ def context_menu_click(jsc, item_text, job_name):
         jsc.tag['FlowControllerRPC'].set_job_state(job_name, STATE_FAIL, reason='manually set by user ?')
 
 
-
 def canvas_click(jsc, x, y):
     for j in jsc.tag['gui_nodes'].values():
         if j['no_context_menu']:
@@ -260,16 +265,15 @@ def canvas_click(jsc, x, y):
 
         if abs(x - j['x_render']) < j['icon_radius']:
             if abs(y - j['y_render']) < j['icon_radius']:
-                
+
                 html = ''
-                
+
                 details = jsc.tag['FlowControllerJobsSnapshot']._job_dict[j['name']]
                 for k in sorted(details.keys()):
                     html += f'<span style="color: steelblue">{k} :</span> {details[k]}\n'
 
                 jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_status').html(`{html}`)""")
-                
-                
+
                 log_filename = jsc.tag['FlowControllerJobsSnapshot'].get_log_filename(j['name'])
                 if os.path.exists(log_filename):
                     with open(log_filename, 'r') as f:
@@ -278,7 +282,7 @@ def canvas_click(jsc, x, y):
                 else:
                     s = f"<span style='color:red'>This job may not have run for today yet.</span>\n\nlog file at {log_filename} does not exist."
                 jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_log').html(`{s}`)""")
-                
+
                 return
 
 
@@ -293,14 +297,18 @@ def context_menu_request_show(jsc, x, y, page_x, page_y):
                 return
 
 
+def handle_404(path):
+    print(path)
+
+
 def ready(jsc, *args):
     # populate the legend
     html = ''
     for state in [STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL]:
         html += f"""<span class="dot" style="background-color: {COLOR_MAPPING[state]}"></span>{state}<br>"""
-    
+
     jsc.eval_js_code(blocking=False, js_code=f"$('#legend').html(`{html}`)")
-    
+
     reconnect(jsc)
     jsc.eval_js_code(blocking=False, js_code="canvasViewportAutofit(gBoundingBox)")
     if jsc.user is not None:
@@ -311,8 +319,8 @@ def ready(jsc, *args):
         jsc.eval_js_code(blocking=False, js_code="$('#btn_login').css('display', 'inline-block')")
         jsc.eval_js_code(blocking=False, js_code="$('#btn_logout').css('display', 'none')")
         jsc.eval_js_code(blocking=False, js_code="$('#btn_logout').html('Logout')")
-#        jsc.eval_js_code(blocking=False, js_code="$('#adminMenu').addClass('disabled')")
-#        jsc.eval_js_code(blocking=False, js_code="$('#contextMenu').addClass('disabled')")
+        jsc.eval_js_code(blocking=False, js_code="$('#adminMenu').addClass('disabled')")
+        jsc.eval_js_code(blocking=False, js_code="$('#contextMenu').addClass('disabled')")
 
 
 def reconnect(jsc, *args):
@@ -329,19 +337,26 @@ def reconnect(jsc, *args):
             jsc.tag['FlowControllerInfo'] = c
 
     jsc.tag['FlowControllerRPC'] = FlowControllerRPCClient(jsc.tag['FlowControllerInfo']['rpc_addr'])
-    
-    
-    
+
     refresh_gui_nodes(jsc)
     redraw_canvas(jsc)
 
 
 def refresh_gui_nodes(jsc):
     jsc.tag['FlowControllerJobsSnapshot'] = jsc.tag['FlowControllerRPC'].get_jobs_snapshot()
-         
+
+    # load the logo
+    try:
+        logo = base64.b64encode(jsc.tag['FlowControllerJobsSnapshot'].get_logo().data)
+        logo = "data:image/png;base64," + logo.decode()
+        jsc.eval_js_code(blocking=False, js_code=f"""gLogoImg.src = '{logo}';""")
+    except Exception as e:
+        print(e)
+
     jsc.eval_js_code(blocking=False, js_code=f"""$('#title').html("{jsc.tag['FlowControllerJobsSnapshot']._cfg['title']}");""")
-         
+
     jsc.tag['gui_nodes'] = _convert_cfg_to_gui_nodes(jsc.tag['FlowControllerJobsSnapshot'])
+
 
 def redraw_canvas(jsc):
     js = """
@@ -352,11 +367,15 @@ def redraw_canvas(jsc):
         gCtx.fillStyle = "#F8F8F8";
         gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height);
         gCtx.fillRect(0, 0, gCanvas.width, gCanvas.height);
-        
+
         var wh = Math.min(gCanvas.width, gCanvas.height) * 0.85;
         gCtx.globalAlpha = 0.2;
-        gCtx.drawImage(gLogoImg, (gCanvas.width - wh) / 2, (gCanvas.height - wh) / 2, wh, wh);
+        try {
+            gCtx.drawImage(gLogoImg, (gCanvas.width - wh) / 2, (gCanvas.height - wh) / 2, wh, wh);
+        } catch(err) {
+        }
         gCtx.globalAlpha = 1;
+
         gCtx.setTransform(oldtransform);
     """
     for j in jsc.tag['gui_nodes'].values():
@@ -387,18 +406,17 @@ def message_handler(smq_uid, msg, msg_data):
 def run(args):
     global SMQC
     SMQC = SMQClient()
-#    SMQC.set_message_handler(message_handler)
     try:
         SMQC.start_client(args['smq_server'], 'Flow Controller WebApp', 'FlowController.Trigger', 'FlowController.Changed', message_handler)
     except ConnectionRefusedError:
         logging.error('SMQ Server is not running!')
- 
+
     atexit.register(lambda: SMQC.shutdown())
-    
+
     login_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_login.html')
     default_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_webapp.html')
 
-    run_pylinkjs_app(default_html=default_html_page, port=7010, login_html_page=login_html_page, html_dir=os.path.dirname(__file__))
+    run_pylinkjs_app(default_html=default_html_page, port=7010, login_html_page=login_html_page, html_dir=os.path.dirname(__file__), on_404=handle_404)
 
 
 if __name__ == "__main__":
