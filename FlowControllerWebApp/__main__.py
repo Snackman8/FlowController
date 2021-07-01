@@ -18,9 +18,12 @@ except Exception as _:
     from FlowController import STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL
 
 from SimpleMessageQueue import SMQClient
-import atexit
+#import atexit
 import xmlrpc
 import croniter
+from urllib.parse import parse_qs
+import signal
+import socket
 
 
 # --------------------------------------------------
@@ -286,6 +289,12 @@ def canvas_click(jsc, x, y):
                 return
 
 
+def close(jsc):
+    pass
+    
+#    print('CLOSE', args, kwargs)
+
+
 def context_menu_request_show(jsc, x, y, page_x, page_y):
     for j in jsc.tag['gui_nodes'].values():
         if j['no_context_menu']:
@@ -301,15 +310,33 @@ def handle_404(path):
     print(path)
 
 
-def ready(jsc, *args):
-    # populate the legend
+def heartbeat_callback():
+    for jsc in get_all_jsclients():
+        # if the jsc does not have FlowControllerInfo we don't need to process a heartbeat            
+        if 'FlowControllerInfo' not in jsc.tag or jsc.tag['FlowControllerInfo'] is None:
+            continue
+
+        # check if the FlowControllerRPC is alive
+        try:
+            jsc.tag['FlowControllerRPC'].is_alive()
+        except Exception as e:
+            jsc.eval_js_code(blocking=False, js_code="show_no_connection();")
+
+
+def ready_cfg_view(jsc, *args):
+    # make sure required params are present
+    if args[2].startswith('?'):
+        params = parse_qs(args[2][1:])
+        if 'CFG_UID' not in params:
+            jsc.eval_js_code(blocking=False, js_code=f"window.location.replace('/');")
+
     html = ''
     for state in [STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL]:
         html += f"""<span class="dot" style="background-color: {COLOR_MAPPING[state]}"></span>{state}<br>"""
 
     jsc.eval_js_code(blocking=False, js_code=f"$('#legend').html(`{html}`)")
 
-    reconnect(jsc)
+    reconnect(jsc, *args)
     jsc.eval_js_code(blocking=False, js_code="canvasViewportAutofit(gBoundingBox)")
     if jsc.user is not None:
         jsc.eval_js_code(blocking=False, js_code="$('#btn_login').css('display', 'none')")
@@ -323,24 +350,72 @@ def ready(jsc, *args):
         jsc.eval_js_code(blocking=False, js_code="$('#contextMenu').addClass('disabled')")
 
 
-def reconnect(jsc, *args):
+def ready_index(jsc, *args):
+    reconnect(jsc, *args)
+
+
+def ready(jsc, *args):
+    if args[1].startswith('/cfg_view.html'):
+        return ready_cfg_view(jsc, *args)
+    if args[1].startswith('/'):
+        return ready_index(jsc, *args)
+    print(args)
+
+def reconnect_cfg_view(jsc, *args):
     jsc.tag['url_params'] = {}
-    query_string = jsc.eval_js_code(blocking=True, js_code="window.location.search")
-    if query_string.startswith('?'):
-        query_string = query_string[1:]
-        for param in query_string.split('&'):
-            key, _, value = param.partition('=')
-            jsc.tag['url_params'][key] = value
+    if args[2].startswith('?'):
+        jsc.tag['url_params'] = parse_qs(args[2][1:])
+            
     controllers = FlowController.discover_all_flow_controllers('localhost:6500')
+    jsc.tag['FlowControllerInfo'] = None
     for c in controllers:
-        if c['cfg_uid'] == jsc.tag['url_params']['CFG_UID']:
+        print(c['cfg_uid'])
+        if c['cfg_uid'] == jsc.tag['url_params']['CFG_UID'][0]:
             jsc.tag['FlowControllerInfo'] = c
+
+    if jsc.tag['FlowControllerInfo'] is None:
+        # clear the canvas and just show an error message
+        js = f"""
+            console.log(gCanvas.width);
+            gCtx.textBaseline = "middle";
+            gCtx.setTransform();
+            gCtx.fillStyle = "#FFE0E0";
+            $('#title').css('background-color', '#FFE0E0');
+            $('#title').html('No Flow Controller Configuration found for "{jsc.tag['url_params']['CFG_UID'][0]}"');
+            gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height);
+            gCtx.fillRect(0, 0, gCanvas.width, gCanvas.height);
+        """
+        jsc.eval_js_code(blocking=False, js_code=js)
+        return
 
     jsc.tag['FlowControllerRPC'] = FlowControllerRPCClient(jsc.tag['FlowControllerInfo']['rpc_addr'])
 
     refresh_gui_nodes(jsc)
     redraw_canvas(jsc)
 
+
+def reconnect_index(jsc, *args):
+    controllers = FlowController.discover_all_flow_controllers('localhost:6500')
+    jsc.tag['FlowControllerInfo'] = None
+
+    html = ''
+    for c in controllers:
+        print(c.keys())
+        html += f"""<a class=button1 target="_blank" style='position: static; margin-top:10px' href='/cfg_view.html?CFG_UID={c['cfg_uid']}'>{c['cfg_uid']}</a> <span class=desc><i>{c['cfg_title']}</i></span><br>"""
+    
+    jsc['#picklist'].html = html 
+    
+    
+    print('RECONNECT INDEX')
+    pass 
+
+
+def reconnect(jsc, *args):
+    if args[1].startswith('/cfg_view.html'):
+        return reconnect_cfg_view(jsc, *args)
+    if args[1].startswith('/'):
+        return reconnect_index(jsc, *args)
+    print(args)
 
 def refresh_gui_nodes(jsc):
     jsc.tag['FlowControllerJobsSnapshot'] = jsc.tag['FlowControllerRPC'].get_jobs_snapshot()
@@ -359,6 +434,7 @@ def refresh_gui_nodes(jsc):
 
 
 def redraw_canvas(jsc):
+    print('redraw canvas')
     js = """
         gCtx.textBaseline = "middle";
         gBoundingBox = [0, 0, 0, 0];
@@ -392,10 +468,14 @@ def redraw_canvas(jsc):
 def message_handler(smq_uid, msg, msg_data):
     try:
         if msg == 'FlowController.Changed':
+            print(msg)
             for jsc in get_all_jsclients():
-                if jsc.tag['FlowControllerInfo']['cfg_uid'] == msg_data:
-                    refresh_gui_nodes(jsc)
-                    redraw_canvas(jsc)
+                # TODO: we should decide this based on the page url in the jsc not beased on existence of this property
+                if 'FlowControllerInfo' in jsc.tag:
+                    if jsc.tag['FlowControllerInfo']:
+                        if jsc.tag['FlowControllerInfo']['cfg_uid'] == msg_data:
+                            refresh_gui_nodes(jsc)
+                            redraw_canvas(jsc)
     except Exception:
         logging.error(traceback.format_exc())
 
@@ -409,18 +489,23 @@ def run(args):
     try:
         SMQC.start_client(args['smq_server'], 'Flow Controller WebApp', 'FlowController.Trigger', 'FlowController.Changed', message_handler)
     except ConnectionRefusedError:
+        SMQC = None
         logging.error('SMQ Server is not running!')
 
-    atexit.register(lambda: SMQC.shutdown())
+    signal.signal(signal.SIGTERM, lambda a, b: SMQC.shutdown())
+    signal.signal(signal.SIGINT, lambda a, b: SMQC.shutdown())
+    
 
     login_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_login.html')
-    default_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_webapp.html')
+    default_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_webapp_index.html')
 
-    run_pylinkjs_app(default_html=default_html_page, port=7010, login_html_page=login_html_page, html_dir=os.path.dirname(__file__), on_404=handle_404)
+    run_pylinkjs_app(default_html=default_html_page, port=7010, login_html_page=login_html_page,
+                     html_dir=os.path.dirname(__file__), on_404=handle_404, onContextClose=close,
+                     heartbeat_callback=heartbeat_callback, heartbeat_interval=10)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG, format='%(relativeCreated)6d %(threadName)s %(message)s')
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s %(threadName)s %(message)s')
     logging.info('Flow Controller WebApp Started')
 
     try:

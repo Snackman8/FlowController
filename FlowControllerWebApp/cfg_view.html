@@ -41,6 +41,9 @@
             SUCCESS<br>
             FAIL<br>
         </div>        
+        <div id=error_msg>
+        Connection to Flow Controller Lost!<br><br>Refresh this page to attempt to restore.
+        </div>
         <canvas id="myCanvas" style="z-index:-1"></canvas>        
     </div>
     <div id="split-1" class="splitter_pane" style="display: flex; flex-direction: column;">
@@ -71,7 +74,6 @@
 
     function documentClick(e) {
         var inside = (e.target.closest('#contextMenu'));
-        console.log(inside);
         if(!inside) {
             $('#contextMenu').css('display', 'none');
             inside = e.target.closest('#btn_hamburger');
@@ -119,7 +121,6 @@
 
     function contextMenuClicked(e) {
         // jquery event handler
-        console.log(e.target.innerText);
         $('#contextMenu').css('display', 'none');
         call_py('context_menu_click', e.target.innerText, gContextMenuJobName);  
     }
@@ -166,6 +167,10 @@
         $('#pre_status').css('margin-left', '4px')
         $('#pre_status').width($('#split-1-1').innerWidth() - 8);
         $('#pre_status').height($('#split-1-1').innerHeight() - 8);
+
+        $('#error_msg').css({'width': gCanvas.width * 0.5});
+        $('#error_msg').css({'left': (gCanvas.width - $('#error_msg').width()) / 2,
+                          'top': (gCanvas.height - $('#error_msg').height()) / 2});
         
         
     }
@@ -173,10 +178,14 @@
     function adminMenuClicked(e) {
         // jquery event handler
         $('#contextMenu').css('display', 'none');
-        console.log('AA');
         call_py('admin_menu_click', event.target.innerText);  
     }
 
+    function show_no_connection() {
+        $('#error_msg').css('display', 'block');
+        console.log('NO CONNECTION!');
+    }
+    
     gLogoImg.src = '';
 //    gLogoImg.src = '/fake_logo2.png';
 

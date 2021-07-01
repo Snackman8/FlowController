@@ -11,6 +11,7 @@ import time
 import traceback
 from functools import partial
 import atexit
+import signal
 import socket
 import threading
 import xmlrpc
@@ -123,6 +124,9 @@ class FlowControllerJobReader():
     def get_job_dict(self):
         return self._job_dict
 
+    def get_title(self):
+        return self._cfg['title']
+
     def get_uid(self):
         return self._cfg['uid']
 
@@ -190,6 +194,9 @@ class FlowControllerJobManager(FlowControllerJobReader):
     def reload(self):
         # init the base FlowcontrollerJobReader
         cfg = self._read_cfg_file(self._cfg_filename)
+        
+        self.verify(cfg)
+        
         super().__init__(cfg)
 
         # init the ledger
@@ -237,10 +244,44 @@ class FlowControllerJobManager(FlowControllerJobReader):
         iter = croniter.croniter(self._job_dict[job_name]['cron'], base)
         self._job_dict[job_name]['next_cron_fire_time'] = iter.get_next(datetime.datetime)
 
+    def verify(self, cfg):
+        def log_pretty_error(err_msg):
+            logging.error(f'')
+            logging.error(f'')
+            logging.error(f'*************************')
+            for s in err_msg.split('\n'):
+                logging.error(f'    {s}')
+            logging.error(f'   Fatal Error!  Exiting!')
+            logging.error(f'*************************')
+            logging.error(f'')
+            logging.error(f'')
+            raise ValueError(err_msg)
+            
+        # verify root keys are present
+        for k in ['title', 'uid', 'logo_filename', 'jobs', 'filename', 'joblog_dir', 'logo']:
+            if k not in cfg:
+                log_pretty_error(f"""FlowController Config is missing root key '{k}'""")
+        
+        job_dict = {}
+        for j in cfg['jobs']:
+            for k in ['name',]:
+                if k not in j.keys():
+                    log_pretty_error(f"""FlowController Config job is missing is key '{k}'\n{j}""")
+            job_dict[j['name']] = j
+
+        for j in cfg['jobs']:
+            for djn in j.get('depends', []):
+                if djn not in job_dict.keys():
+                    log_pretty_error(f"""FlowController Config job "{j['name']}" depends on job "{djn}" which does not exit""")
+
 
 class FlowControllerRPCClient():
     def __init__(self, rpc_url):
         self._rpc_url = rpc_url
+
+    def is_alive(self):
+        with xmlrpc.client.ServerProxy(self._rpc_url, allow_none=True) as sp:
+            return sp.nop()        
 
     def get_jobs_snapshot(self):
         with xmlrpc.client.ServerProxy(self._rpc_url, allow_none=True) as sp:
@@ -258,14 +299,14 @@ class FlowControllerRPCClient():
     def trigger_job(self, job_name, reason):
         self.set_job_state(job_name, STATE_PENDING, reason)
 
-    def _message_handler(self, **kwargs):
-        pass
-
-    def start(self, **kwargs):
-        pass
-
-    def shutdown(self, **kwargs):
-        pass
+#     def _message_handler(self, **kwargs):
+#         pass
+# 
+#     def start(self, **kwargs):
+#         pass
+# 
+#     def shutdown(self, **kwargs):
+#         pass
 
 
 class FlowControllerMixInBase():
@@ -296,20 +337,22 @@ class FlowControllerRPCMixIn(FlowControllerMixInBase):
         self._rpc_server.register_function(
             lambda job_name, new_state, reason: self._job_manager.set_job_state(job_name, new_state, reason),
             'set_job_state')
+        self._rpc_server.register_function(lambda: True, 'nop')
         self._rpc_url = 'http://' + socket.gethostname() + ':' + str(self._rpc_server.server_address[1])
-        print(self._rpc_url)
 
         # start
         self._rpc_server_thread = threading.Thread(target=lambda: self._rpc_server.serve_forever(), daemon=True)
         self._rpc_server_thread.start()
 
     def shutdown(self):
-        self._rpc_server.shutdown()
+        if self._rpc_server:
+            self._rpc_server.shutdown()
+            self._rpc_server = None
 
 
 class FlowControllerDiscoveryMixIn(FlowControllerMixInBase):
     @classmethod
-    def discover_all_flow_controllers(cls, smq_server_addr, discovery_time=0.5):
+    def discover_all_flow_controllers(cls, smq_server_addr, discovery_time=1):
         """ discover all flow controllers
 
             Args:
@@ -337,7 +380,9 @@ class FlowControllerDiscoveryMixIn(FlowControllerMixInBase):
                 break
             if msg['msg'] == 'FlowController.CQ_Response':
                 d = msg['msg_data']
-                retval.append({'smq_uid': d['smq_uid'], 'rpc_addr': d['rpc_addr'], 'cfg_uid': d['cfg_uid']})
+                retval.append({'smq_uid': d['smq_uid'], 'rpc_addr': d['rpc_addr'], 'cfg_uid': d['cfg_uid'], 'cfg_title': d['cfg_title']})
+
+        smqc.shutdown()
 
         # success!
         return retval
@@ -349,6 +394,7 @@ class FlowControllerDiscoveryMixIn(FlowControllerMixInBase):
                     'smq_uid': self._smqc._client_info['smq_uid'],
                     'rpc_addr': self._rpc_url,
                     'cfg_uid': self._job_manager.get_uid(),
+                    'cfg_title': self._job_manager.get_title(),
                     }
                 self._smqc.send_direct_message(kwargs['smq_uid'], 'FlowController.CQ_Response', msg_data)
         except Exception as e:
@@ -377,17 +423,32 @@ class FlowControllerBase(FlowControllerMixInBase):
             with open(lock_filename, 'w') as f:
                 f.write(str(os.getpid()))
 
-            # at exit, remove the lockfile
-            def remove_lockfile(lock_filename):
-                f = open(lock_filename, 'r')
-                pid = f.read()
-                f.close()
-                if pid == str(os.getpid()):
-                    os.remove(lock_filename)
-            atexit.register(partial(remove_lockfile, lock_filename))
+#             # at exit, remove the lockfile
+#             def remove_lockfile(lock_filename, *args):
+#                 self.shutdown()
+#                 time.sleep()
+#                 
+#                 if os.path.exists(lock_filename):
+#                     f = open(lock_filename, 'r')
+#                     pid = f.read()
+#                     f.close()
+#                     if pid == str(os.getpid()):
+#                         os.remove(lock_filename)
+# #            atexit.register(partial(remove_lockfile, lock_filename, None, None))
+#             signal.signal(signal.SIGTERM, partial(remove_lockfile, lock_filename))
+#             signal.signal(signal.SIGINT, partial(remove_lockfile, lock_filename))
         except Exception as _:
             logging.error(traceback.format_exc())
             exit(1)     # EPERM error code
+
+    def pid_unlock(self, *args):
+        lock_filename = os.path.splitext(self._job_manager._cfg_filename)[0] + '.lock'
+        if os.path.exists(lock_filename):
+            f = open(lock_filename, 'r')
+            pid = f.read()
+            f.close()
+            if pid == str(os.getpid()):
+                os.remove(lock_filename)
 
     def pid_verify(self):
         try:
@@ -405,9 +466,7 @@ class FlowControllerBase(FlowControllerMixInBase):
         # TODO: Change to process and track PIDs in self._job_pids
         def threadworker_run_job(job_name):
             job = self._job_manager.get_job_dict()[job_name]
-            proc = subprocess.Popen(job['run_cmd'], cwd=os.getcwd(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    shell=True)
-
+            
             # setup the logger
             log_filename = self._job_manager.get_log_filename(job_name)
             print(log_filename)
@@ -423,19 +482,28 @@ class FlowControllerBase(FlowControllerMixInBase):
             logger.info('FlowController Starting Job')
             logger.info('')
             logger.info('')
-            while True:
-                output = proc.stdout.readline()
-                if len(output) == 0 and proc.poll() is not None:
-                    break
-                if output:
-                    logger.info(output.strip().decode())
-                    logger.handlers[0].flush()
-            rc = proc.poll()
-            if rc == 0:
-                self._job_manager.set_job_state(job_name, STATE_SUCCESS, 'job completed')
-            else:
-                self._job_manager.set_job_state(job_name, STATE_FAIL, 'job completed')
-            return rc
+            
+            try:
+
+                proc = subprocess.Popen(job['run_cmd'], cwd=os.getcwd(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                        shell=True)
+                    
+                while True:
+                    output = proc.stdout.readline()
+                    if len(output) == 0 and proc.poll() is not None:
+                        break
+                    if output:
+                        logger.info(output.strip().decode())
+                        logger.handlers[0].flush()
+                rc = proc.poll()
+                if rc == 0:
+                    self._job_manager.set_job_state(job_name, STATE_SUCCESS, 'job completed')
+                else:
+                    self._job_manager.set_job_state(job_name, STATE_FAIL, 'job completed')
+                return rc
+            except:
+                logger.error(traceback.format_exc())
+                self._job_manager.set_job_state(job_name, STATE_FAIL, 'job error')                
 
         t = threading.Thread(target=threadworker_run_job, args=(job_name,))
         t.start()
@@ -445,7 +513,10 @@ class FlowControllerBase(FlowControllerMixInBase):
         self._shutdown = False
 
         # setup the job manager
-        self._job_manager = FlowControllerJobManager(ledger_dir, cfg_filename, joblog_dir)
+        try:
+            self._job_manager = FlowControllerJobManager(ledger_dir, cfg_filename, joblog_dir)
+        except ValueError as _:
+            exit(1)
 
         # lock to pid
         self.pid_lock()
@@ -463,6 +534,9 @@ class FlowControllerBase(FlowControllerMixInBase):
         self._shutdown = True
 
     def main_loop(self):
+        signal.signal(signal.SIGTERM, lambda a, b: self.shutdown())
+        signal.signal(signal.SIGINT, lambda a, b: self.shutdown())
+        
         last_cron_check = datetime.datetime.now() - datetime.timedelta(seconds=60)
         current_date = datetime.datetime.now().strftime('%Y%m%d')
         while not self._shutdown:
@@ -507,6 +581,9 @@ class FlowControllerBase(FlowControllerMixInBase):
             # delay
             time.sleep(0.1)
 
+        # unlock on exit
+        self.pid_unlock()        
+
 
 class FlowController(FlowControllerBase, FlowControllerDiscoveryMixIn, FlowControllerRPCMixIn):
     def __init__(self, **kwargs):
@@ -526,6 +603,6 @@ class FlowController(FlowControllerBase, FlowControllerDiscoveryMixIn, FlowContr
         FlowControllerRPCMixIn.start(self, **kwargs)
 
     def shutdown(self):
-        FlowControllerBase.shutdown()
-        FlowControllerDiscoveryMixIn.shutdown()
-        FlowControllerRPCMixIn.shutdown()
+        FlowControllerBase.shutdown(self)
+        FlowControllerDiscoveryMixIn.shutdown(self)
+        FlowControllerRPCMixIn.shutdown(self)

@@ -24,13 +24,13 @@ function canvasViewportInit(canvasId, refreshHandler) {
 
 function canvasViewportAutofit(boundingbox) {
     // calculate zoom based on aspect ratio
-    var bh = (boundingbox[3] - boundingbox[1]);
+    var bh = (boundingbox[3] - boundingbox[1]) / 1.3;
     var bw = (boundingbox[2] - boundingbox[0]);
     gCanvasViewPortZoom = Math.min(gCanvasViewPortCanvas.width / bw, gCanvasViewPortCanvas.height / bh) * 0.9;
     
     // center the bounding box and redraw    
     gCanvasViewPortCtx.setTransform();
-    gCanvasViewPortCtx.clearRect(0, 0, gCanvasViewPortCanvas.width, gCanvasViewPortCanvas.height);
+//    gCanvasViewPortCtx.clearRect(0, 0, gCanvasViewPortCanvas.width, gCanvasViewPortCanvas.height);
     gCanvasViewPortCtx.translate((gCanvasViewPortCanvas.width - bw * gCanvasViewPortZoom) / 2,
                                  (gCanvasViewPortCanvas.height - bh * gCanvasViewPortZoom) / 2);
     gCanvasViewPortCtx.scale(gCanvasViewPortZoom, gCanvasViewPortZoom);

@@ -1,4 +1,3 @@
-include FlowControllerWebApp/fake_logo.png
 include FlowControllerWebApp/canvas_viewport.js
 include FlowControllerWebApp/flow_controller_login.html
 include FlowControllerWebApp/flow_controller_webapp.css
