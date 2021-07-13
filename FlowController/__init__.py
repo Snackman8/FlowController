@@ -484,8 +484,10 @@ class FlowControllerBase(FlowControllerMixInBase):
             logger.info('')
             
             try:
-
-                proc = subprocess.Popen(job['run_cmd'], cwd=os.getcwd(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                # set the current working directory to the directory of the cfg file
+                cwd = os.path.abspath(os.path.dirname(self._job_manager._cfg_filename))
+                print(cwd)
+                proc = subprocess.Popen(job['run_cmd'], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                         shell=True)
                     
                 while True:

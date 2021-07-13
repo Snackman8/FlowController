@@ -22,7 +22,6 @@ def run(args):
     time.sleep(int(args['sleep_time']))
 
     print("EXITING")
-    raise Exception('A')
     exit(0)
 
 
