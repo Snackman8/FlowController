@@ -6,13 +6,10 @@ WantedBy=multi-user.target
 
 [Service]
 Environment="CFG_FILE=/var/lib/FlowController/sample_configs_and_jobs/signal_test_example.py.cfg"
-Environment="SMQ_SERVER=localhost:6500"
-Environment="LEDGER_DIR=/var/local/FlowController/ledgers"
-Environment="JOBLOG_DIR=/var/log/FlowController/joblogs"
 
 Type=simple
 User=FlowController
 Restart=on-failure
 KillSignal=SIGINT
-ExecStart=/usr/bin/python3 -m FlowController --smq_server $SMQ_SERVER --config $CFG_FILE --ledger_dir $LEDGER_DIR --joblog_dir $JOBLOG_DIR
-StandardError=append:/var/log/FlowController.log
+ExecStart=/usr/bin/python3 -m FlowController.FlowController --config $CFG_FILE --start --console_log_level INFO
+StandardError=append:/var/log/FlowController_signal_test_example.log

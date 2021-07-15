@@ -10,7 +10,10 @@ import threading
 import time
 import uuid
 from SimpleMessageQueue.SMQ_Client import SMQ_Client
-import FlowController.FlowController_util as FlowController_util 
+try:
+    import FlowController.FlowController_util as FlowController_util
+except:
+    import FlowController_util
 
 
 JobState = Enum('JobState', 'IDLE PENDING RUNNING SUCCESS FAILURE')
@@ -217,6 +220,10 @@ def run(args):
     client = None
     try:
         FC = FlowController(args['config'])
+        if not os.path.exists(FC._job_manager.get_config_prop('ledger_dir')):
+            os.makedirs(FC._job_manager.get_config_prop('ledger_dir'))
+        if not os.path.exists(FC._job_manager.get_config_prop('job_logs_dir')):
+            os.makedirs(FC._job_manager.get_config_prop('job_logs_dir'))
     
         # start the server if requested
         if args['start']:
