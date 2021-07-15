@@ -1,0 +1,302 @@
+import argparse
+import base64
+import copy
+import datetime
+from enum import Enum
+import logging
+import os
+import signal
+import threading
+import time
+import uuid
+from SimpleMessageQueue.SMQ_Client import SMQ_Client
+import FlowController.FlowController_util as FlowController_util 
+
+
+JobState = Enum('JobState', 'IDLE PENDING RUNNING SUCCESS FAILURE')
+
+class JobManager():
+    def __init__(self, config_filename):
+        self._cfg = None
+        self._config_filename = config_filename
+        self._ledger_lock = threading.Lock()        
+        self.reload_config(None)
+
+    def change_job_state(self, smqc, job_name, new_state, reason):
+        # change the job state
+        try:
+            self._ledger_lock.acquire()
+            FlowController_util.FlowControllerLedger.append(self._cfg['ledger_dir'], self._cfg['uid'], job_name, new_state.name, reason)
+            self._cfg['jobs'][job_name]['state'] = new_state
+        finally:
+            self._ledger_lock.release()
+
+        # broadcast config_changed
+        smqc.send_message(smqc.construct_msg('job_state_changed', '*', {'job_name': job_name, 'new_state': new_state.name}))
+
+    def get_config_prop(self, prop):
+        """ read a property from the config file.
+
+            Args:  
+                prop - available props: title, uid, logo_filename, jobs
+
+            Returns:
+                the value of the prop
+        """
+        return self._cfg[prop]
+
+    def get_config_snapshot(self, smqc):
+        # xmlrpc cannot marshal enums, so convert to string
+        d = copy.deepcopy(self._cfg)
+        for jn in d['jobs']:
+            d['jobs'][jn]['state'] = d['jobs'][jn]['state'].name
+        return {'retval': 0, 'config': d}
+
+    def get_icon(self, smqc):
+        icon_filename = os.path.join(os.path.dirname(self._config_filename), self._cfg['logo_filename'])
+        with open(icon_filename, 'rb') as f:
+            return {'retval': 0, 'icon': base64.b64encode(f.read()).decode("ascii")}
+
+    def get_log_chunk(self, smqc, job_name, range):
+        filename = self.get_log_filename(job_name)
+        f = open(filename, 'r')
+        s = f.read()
+        f.close()
+        return {'retval': 0, 'log': s[slice(*[int(x) if x else None for x in range.split(':')])]}
+
+    def get_log_filename(self, job_name, date=None):
+        if date is None:
+            date = datetime.datetime.now()
+        return os.path.abspath(os.path.join(self._cfg['job_logs_dir'],
+                                            f"{job_name}.{datetime.datetime.now().strftime('%Y%m%d')}.log"))        
+
+    def process_jobs(self, smqc):
+        # check if any jobs have all of their dependencies met, if so, change to pending
+        jobs = self._cfg['jobs']
+        for jn, j in jobs.items():
+            # skip any nodes that are not IDLE or do not have depends
+            if len(j.get('depends', [])) == 0 or j['state'] != JobState.IDLE:
+                continue
+
+            # check if all dependencies are met
+            if all([(djn in jobs) and (jobs[djn]['state'] == JobState.SUCCESS) for djn in j['depends']]):
+                self.change_job_state(smqc, jn, JobState.PENDING, 'Dependencies Ready')
+        
+        # change any triggered cron jobs to pending
+        
+        # execute any pending jobs
+        for jn, j in jobs.items():
+            if j['state'] == JobState.PENDING:
+                self.change_job_state(smqc, jn, JobState.RUNNING, 'pending')
+                cwd = os.path.join(os.path.dirname(os.path.abspath(self._config_filename)))
+                FlowController_util.run_job_in_separate_process(
+                    smqc=smqc, FC_target_id=self.get_config_prop('uid'), job_name=jn,
+                    cwd=os.path.join(os.path.dirname(os.path.abspath(self._config_filename))),
+                    run_cmd=self._cfg['jobs'][jn].get('run_cmd', None),
+                    log_filename=self.get_log_filename(jn))
+
+    def reload_config(self, smqc):
+        """ reload the config and broadcast a config_changed message """
+        # read the config file
+        self._cfg = FlowController_util.read_cfg_file(self._config_filename)
+
+        # set all job states to idle
+        for jn, j in self._cfg['jobs'].items():
+            j['state'] = JobState.IDLE
+
+        # load the states from the ledger
+        try:
+            self._ledger_lock.acquire()
+            df = FlowController_util.FlowControllerLedger.read(self._cfg['ledger_dir'], self._cfg['uid'])
+            for _, r in df.iterrows():
+                if r['job_name'] in self._cfg['jobs']: 
+                    self._cfg['jobs'][r['job_name']]['state'] = JobState[r['state']]
+        finally:
+            self._ledger_lock.release()
+        
+        # broadcast config_changed
+        if smqc is not None:
+            smqc.send_message(smqc.construct_msg('config_changed', '*', {}))
+
+
+    def trigger_job(self, smqc, job_name, reason):
+        """ trigger a job
+        
+            Args:
+                job_name - name of the job to trigger
+        """
+        self.change_job_state(smqc, job_name, JobState.PENDING, reason)
+
+
+class FlowController():
+    def __init__(self, config_filename):
+        """ init """
+        self._shutdown = False
+        self._job_manager = JobManager(config_filename)
+
+
+    def _build_smq_client(self):
+        client_uid = self.get_client_id()
+        classifications = ['FlowController',client_uid]
+        pub_list = ['job_log_changed', 'job_state_changed']
+        sub_list = ['change_job_state', 'reload_config', 'request_config', 'request_icon', 'request_log_chunk',
+                    'trigger_job']
+        return SMQ_Client(self._job_manager.get_config_prop('smq_server'), client_uid, client_uid, classifications, pub_list, sub_list)
+
+    def build_smq_terminal_client(self):
+        client_uid = 'FC_TERM_' + uuid.uuid4().hex
+        classifications = ['FlowController_Terminal']
+        pub_list = ['change_job_state', 'reload_config', 'request_config', 'request_icon', 'request_log_chunk',
+                    'trigger_job']
+        sub_list = []
+        return SMQ_Client(self._job_manager.get_config_prop('smq_server'), client_uid, client_uid, classifications, pub_list, sub_list)
+
+    def get_client_id(self):
+        return self._job_manager.get_config_prop('uid')
+
+    def _main_loop(self, smqc):
+        signal.signal(signal.SIGTERM, lambda a, b: self.stop())
+        signal.signal(signal.SIGINT, lambda a, b: self.stop())
+        
+        while not self._shutdown:
+            self._job_manager.process_jobs(smqc)
+            time.sleep(0.1)
+
+        smqc.stop()
+
+    def list(self):
+        client = self._build_smq_client()
+        all_client_info = client.get_info_for_all_clients()
+        return all_client_info
+
+    def start(self):
+        """ start the flow controller """
+        client = self.build_smq_terminal_client()        
+        all_client_info = client.get_info_for_all_clients()
+        
+        # verify this config_id is not already running
+        if self.get_client_id() in all_client_info:
+            # send a ping to make sure
+            try:
+                msg = client.send_message(client.construct_msg('ping', self.get_client_id(), {}), wait=3)
+                raise Exception(f'A Flow Controller config with uid of {self.get_client_id()} is already running')
+            except TimeoutError:
+                logging.info(f'A Flow controller config with uid of {self.get_client_id()} was detected, but appears ' +
+                            'to be dead and it will be removed')
+                # this is a pretty bad hack to disconnect the dead client.  Fix later by implementing a reverse RPC
+                # so the server can check if the client is alive
+                self._build_smq_client().stop(force=True)
+
+        # start the SMQ_Client
+        client = self._build_smq_client()
+        client.add_message_handler('change_job_state', lambda  msg, smqc:
+            self._job_manager.change_job_state(smqc, msg['payload']['job_name'], JobState[msg['payload']['new_state']],
+                                               msg['payload']['reason']))
+        client.add_message_handler('ping', lambda msg, smqc: {'retval': 0})
+        client.add_message_handler('reload_config', lambda msg, smqc: self._job_manager.reload_config(smqc))
+        client.add_message_handler('request_config', lambda  msg, smqc: self._job_manager.get_config_snapshot(smqc))
+        client.add_message_handler('request_icon', lambda  msg, smqc: self._job_manager.get_icon(smqc))
+        client.add_message_handler('request_log_chunk', lambda  msg, smqc:
+            self._job_manager.get_log_chunk(smqc, msg['payload']['job_name'], msg['payload']['range']))
+        client.add_message_handler('trigger_job', lambda  msg, smqc:
+            self._job_manager.trigger_job(smqc, msg['payload']['job_name'], msg['payload']['reason']))
+        client.start()
+
+        # start the main loop
+        self._main_loop(client)
+
+    def stop(self):
+        self._shutdown = True
+
+
+# --------------------------------------------------
+#    Main
+# --------------------------------------------------
+def run(args):
+    """ run """
+    client = None
+    try:
+        FC = FlowController(args['config'])
+    
+        # start the server if requested
+        if args['start']:
+            return FC.start()
+    
+        # build a terminal client
+        client = FC.build_smq_terminal_client()
+        client.start()
+    
+        # handle list
+        if args['list']:
+            # list the running flow controllers
+            all_client_info = client.get_info_for_all_clients()
+            for k, v in all_client_info.items():
+                print(k, v)
+            return
+    
+    
+        # handle status
+        if args['status']:
+            msg = client.construct_msg('request_config', FC.get_client_id(), {})
+            response_payload = client.send_message(msg, wait=5)
+            for j in response_payload['config']['jobs'].values():
+                print(f'{j["name"]}: {j["state"]}')
+            return
+    
+        # handle actions
+        if args['action'] is not None:
+            if args['action'] == 'change_job_state':
+                payload = {'job_name': args['job_name'], 'new_state': args['new_state'], 'reason': 'terminal'}
+            if args['action'] in ('ping', 'reload_config', 'request_config', 'request_icon'):
+                payload = {}
+            if args['action'] == 'request_log_chunk':
+                payload = {'job_name': args['job_name'], 'range': args['log_range']}
+            if args['action'] == 'trigger_job':
+                payload = {'job_name': args['job_name'], 'reason': 'terminal'}
+    
+            msg = client.construct_msg(args['action'], FC.get_client_id(), payload)
+            response_payload = client.send_message(msg, wait=5)
+            print(response_payload)
+    except ConnectionRefusedError:
+        logging.error(f'SMQ Server at {FC._job_manager.get_config_prop("smq_server")} is refusing connection')
+    finally:
+        if client is not None:
+            client.stop()
+
+if __name__ == "__main__":
+    # setup logging
+    logging.getLogger().setLevel(logging.INFO)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(threadName)s %(message)s'))
+    logging.getLogger().addHandler(console_handler)
+
+    try:
+        # parse the arguments
+        parser = argparse.ArgumentParser(description='Flow Controller')
+        parser.add_argument('--config', required=True, help='filename of config file to use, i.e. cfg_test.py')
+        parser.add_argument('--start', action='store_true', help='start the Flow Controller for the config')
+        parser.add_argument('--status', action='store_true', help='show the status of jobs in the config')
+        parser.add_argument('--list', action='store_true', help='list running Flow Controllers on the same ' +
+                                                                'bus as the config')
+        parser.add_argument('--action', choices=['change_job_state', 'ping', 'reload_config', 'request_config', 
+                                                 'request_icon', 'request_log_chunk', 'trigger_job'],
+                                        help='perform an action on the Flow Controller running the config')
+        parser.add_argument('--job_name', help='job name to perform the action on')
+        parser.add_argument('--new_state', help='new state of the job, only used with the change_job_state ' +
+                                                'action')
+        parser.add_argument('--log_range', help='character range of the log to return, i.e. 0:1000 for the ' +
+                                                'first 1000 characters.  only used with the request_log_chunk ' +
+                                                'action', default='')
+        parser.add_argument('--console_log_level', default='ERROR')
+        args = parser.parse_args()
+
+        # setup logging level
+        console_handler.setLevel(getattr(logging, args.console_log_level))
+        logging.info('Starting ', vars(args))
+
+        # run
+        run(vars(args))
+    except Exception as e:
+        logging.exception('Exception')
+        raise(e)
