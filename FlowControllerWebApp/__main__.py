@@ -1,29 +1,16 @@
 # --------------------------------------------------
 #    Imports
 # --------------------------------------------------
-import base64
+import argparse
 import logging
 import os
-import traceback
-import argparse
-import sys
-import time
-from pylinkjs.PyLinkJS import run_pylinkjs_app, get_all_jsclients
-try:
-    from FlowController import FlowController, FlowControllerRPCClient
-    from FlowController import STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL
-except Exception as _:
-    sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-    from FlowController import FlowController, FlowControllerRPCClient
-    from FlowController import STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL
-
-from SimpleMessageQueue import SMQClient
-#import atexit
-import xmlrpc
-import croniter
-from urllib.parse import parse_qs
 import signal
-import socket
+import traceback
+from urllib.parse import parse_qs
+
+from pylinkjs.PyLinkJS import run_pylinkjs_app, get_all_jsclients
+from FlowController.FlowController import JobState
+from SimpleMessageQueue.SMQ_Client import SMQ_Client
 
 
 # --------------------------------------------------
@@ -32,19 +19,19 @@ import socket
 SMQC = None
 
 COLOR_MAPPING = {
-    STATE_READY: '#FFEF02',
-    STATE_PENDING: 'lightsalmon',
-    STATE_RUNNING: 'mediumaquamarine',
-    STATE_SUCCESS: 'seagreen',
-    STATE_FAIL: 'firebrick',
+    JobState.IDLE: '#FFEF02',
+    JobState.PENDING: 'lightsalmon',
+    JobState.RUNNING: 'mediumaquamarine',
+    JobState.SUCCESS: 'seagreen',
+    JobState.FAILURE: 'firebrick',
 }
 
 LINK_COLOR_MAPPING = {
-    STATE_READY: '#B0B0B0',
-    STATE_PENDING: 'lightsalmon',
-    STATE_RUNNING: 'mediumaquamarine',
-    STATE_SUCCESS: 'seagreen',
-    STATE_FAIL: 'firebrick',
+    JobState.IDLE: '#B0B0B0',
+    JobState.PENDING: 'lightsalmon',
+    JobState.RUNNING: 'mediumaquamarine',
+    JobState.SUCCESS: 'seagreen',
+    JobState.FAILURE: 'firebrick',
 }
 
 
@@ -115,6 +102,8 @@ def _convert_job_to_guinode(j):
     gn['parents'] = []
     gn['text'] = gn.get('text', gn['name'])
 
+    gn['state'] = JobState[gn['state']]
+
     job_state = gn['state']
     gn['icon_color'] = COLOR_MAPPING.get(job_state, 'gainsboro')
     gn['link_color'] = LINK_COLOR_MAPPING.get(job_state, 'gainsboro')
@@ -123,9 +112,9 @@ def _convert_job_to_guinode(j):
     return gn
 
 
-def _convert_cfg_to_gui_nodes(job_reader_snapshot):
+def _convert_cfg_to_gui_nodes(config_snapshot):
     # convert the cfg nodes to gui nodes
-    gui_jobs = job_reader_snapshot.get_job_dict()
+    gui_jobs = config_snapshot['jobs']
     gui_jobs = {k: _convert_job_to_guinode(v) for k, v in gui_jobs.items()}
 
     # repoint the depends to parent gui nodes, and find roots at the same time
@@ -238,27 +227,38 @@ def _generate_draw_job_node_js(jsc, node_info):
 # --------------------------------------------------
 def admin_menu_click(jsc, item_text):
     if item_text == 'Reload Config':
-        jsc.tag['FlowControllerRPC'].reload_cfg()
+        SMQC.send_message(SMQC.construct_msg('reload_config', jsc.tag['cfg_uid'], {}),
+                          response_callback=on_reload_config_response)
+
+#        jsc.tag['FlowControllerRPC'].reload_cfg()
 
     if item_text == 'Autofit':
         jsc.eval_js_code(blocking=False, js_code="""$('#btn_autofit').click()""")
 
     if item_text == 'Refresh':
-        reconnect(jsc)
+        reconnect_cfg_view(jsc, *jsc.tag['url_args'])
 
 
 def context_menu_click(jsc, item_text, job_name):
     if item_text == 'Trigger Job':
-        jsc.tag['FlowControllerRPC'].trigger_job(job_name, reason='Manually triggered by user ?')
+        SMQC.send_message(SMQC.construct_msg('trigger_job', jsc.tag['cfg_uid'],
+                                             {'job_name': job_name,
+                                              'reason': 'manually set by user ?'}))
 
     if item_text == 'Set as Ready':
-        jsc.tag['FlowControllerRPC'].set_job_state(job_name, STATE_READY, reason='manually set by user ?')
+        SMQC.send_message(SMQC.construct_msg('change_job_state', jsc.tag['cfg_uid'],
+                                             {'job_name': job_name, 'new_state': 'IDLE',
+                                              'reason': 'manually set by user ?'}))
 
     if item_text == 'Set as Success':
-        jsc.tag['FlowControllerRPC'].set_job_state(job_name, STATE_SUCCESS, reason='manually set by user ?')
+        SMQC.send_message(SMQC.construct_msg('change_job_state', jsc.tag['cfg_uid'],
+                                             {'job_name': job_name, 'new_state': 'SUCCESS',
+                                              'reason': 'manually set by user ?'}))
 
     if item_text == 'Set as Fail':
-        jsc.tag['FlowControllerRPC'].set_job_state(job_name, STATE_FAIL, reason='manually set by user ?')
+        SMQC.send_message(SMQC.construct_msg('change_job_state', jsc.tag['cfg_uid'],
+                                             {'job_name': job_name, 'new_state': 'FAILURE',
+                                              'reason': 'manually set by user ?'}))
 
 
 def canvas_click(jsc, x, y):
@@ -271,19 +271,30 @@ def canvas_click(jsc, x, y):
 
                 html = ''
 
-                details = jsc.tag['FlowControllerJobsSnapshot']._job_dict[j['name']]
+                print(jsc.tag.keys())
+
+
+                details = jsc.tag['config']['jobs'][j['name']]
+
+#                details = jsc.tag['FlowControllerJobsSnapshot']._job_dict[j['name']]
                 for k in sorted(details.keys()):
                     html += f'<span style="color: steelblue">{k} :</span> {details[k]}\n'
 
                 jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_status').html(`{html}`)""")
 
-                log_filename = jsc.tag['FlowControllerJobsSnapshot'].get_log_filename(j['name'])
-                if os.path.exists(log_filename):
-                    with open(log_filename, 'r') as f:
-                        s = f.read()
-                    s = log_filename + "\n-----\n" + s
-                else:
-                    s = f"<span style='color:red'>This job may not have run for today yet.</span>\n\nlog file at {log_filename} does not exist."
+                msg = SMQC.construct_msg('request_log_chunk', jsc.tag['cfg_uid'], {'job_name': j['name'], 'range': ''})
+                response = SMQC.send_message(msg, wait=5)
+                s = response['log']
+#                 print(response)
+# 
+#                 log_filename = jsc.tag['FlowControllerJobsSnapshot'].get_log_filename(j['name'])
+#                 if os.path.exists(log_filename):
+#                     with open(log_filename, 'r') as f:
+#                         s = f.read()
+#                     s = log_filename + "\n-----\n" + s
+
+#                 else:
+#                     s = f"<span style='color:red'>This job may not have run for today yet.</span>\n\nlog file at {log_filename} does not exist."
                 jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_log').html(`{s}`)""")
 
                 return
@@ -304,10 +315,6 @@ def context_menu_request_show(jsc, x, y, page_x, page_y):
             if abs(y - j['y_render']) < j['icon_radius']:
                 jsc.eval_js_code(blocking=False, js_code=f"contextMenuShow({page_x}, {page_y}, \"{j['name']}\");")
                 return
-
-
-def handle_404(path):
-    print(path)
 
 
 def heartbeat_callback():
@@ -331,8 +338,8 @@ def ready_cfg_view(jsc, *args):
             jsc.eval_js_code(blocking=False, js_code=f"window.location.replace('/');")
 
     html = ''
-    for state in [STATE_READY, STATE_PENDING, STATE_RUNNING, STATE_SUCCESS, STATE_FAIL]:
-        html += f"""<span class="dot" style="background-color: {COLOR_MAPPING[state]}"></span>{state}<br>"""
+    for state in [JobState.IDLE, JobState.PENDING, JobState.RUNNING, JobState.SUCCESS, JobState.FAILURE]:
+        html += f"""<span class="dot" style="background-color: {COLOR_MAPPING[state]}"></span>{state.name}<br>"""
 
     jsc.eval_js_code(blocking=False, js_code=f"$('#legend').html(`{html}`)")
 
@@ -359,21 +366,35 @@ def ready(jsc, *args):
         return ready_cfg_view(jsc, *args)
     if args[1].startswith('/'):
         return ready_index(jsc, *args)
-    print(args)
 
 def reconnect_cfg_view(jsc, *args):
+    jsc.tag['url_args'] = args
     jsc.tag['url_params'] = {}
     if args[2].startswith('?'):
         jsc.tag['url_params'] = parse_qs(args[2][1:])
-            
-    controllers = FlowController.discover_all_flow_controllers('localhost:6500')
-    jsc.tag['FlowControllerInfo'] = None
-    for c in controllers:
-        print(c['cfg_uid'])
-        if c['cfg_uid'] == jsc.tag['url_params']['CFG_UID'][0]:
-            jsc.tag['FlowControllerInfo'] = c
+        
+#    cfg_uid = jsc.tag['url_params']['CFG_UID'][0]
+    jsc.tag['cfg_uid'] = jsc.tag['url_params']['CFG_UID'][0]
 
-    if jsc.tag['FlowControllerInfo'] is None:
+    all_info = SMQC.get_info_for_all_clients()
+    found = False
+    for k, v in all_info.items():
+        if 'FlowController' in v['classifications']:
+            if k == jsc.tag['cfg_uid'] and ('FlowController' in v['classifications']):
+                found = True
+                break
+    
+            
+#     controllers = FlowController.discover_all_flow_controllers('localhost:6500')
+#     jsc.tag['FlowControllerInfo'] = None
+#     for c in controllers:
+#         print(c['cfg_uid'])
+#         if c['cfg_uid'] == jsc.tag['url_params']['CFG_UID'][0]:
+#             jsc.tag['FlowControllerInfo'] = c
+
+#    if jsc.tag['FlowControllerInfo'] is None:
+    if not found:
+        
         # clear the canvas and just show an error message
         js = f"""
             console.log(gCanvas.width);
@@ -388,20 +409,35 @@ def reconnect_cfg_view(jsc, *args):
         jsc.eval_js_code(blocking=False, js_code=js)
         return
 
-    jsc.tag['FlowControllerRPC'] = FlowControllerRPCClient(jsc.tag['FlowControllerInfo']['rpc_addr'])
+#    jsc.tag['FlowControllerRPC'] = FlowControllerRPCClient(jsc.tag['FlowControllerInfo']['rpc_addr'])
+
+    try:
+        response = SMQC.send_message(SMQC.construct_msg('request_icon', jsc.tag['cfg_uid'], {}), wait=5)
+        jsc.tag['icon'] = response['icon']
+    except:
+        jsc.tag['icon'] = ''
+
+
 
     refresh_gui_nodes(jsc)
     redraw_canvas(jsc)
 
 
 def reconnect_index(jsc, *args):
-    controllers = FlowController.discover_all_flow_controllers('localhost:6500')
+    print(SMQC)
+    flow_controllers = []
+    all_info = SMQC.get_info_for_all_clients()
+    for k, v in all_info.items():
+        if 'FlowController' in v['classifications']:
+            flow_controllers.append(v)
+            
+#    controllers = FlowController.discover_all_flow_controllers('localhost:6500')
     jsc.tag['FlowControllerInfo'] = None
 
-    html = ''
-    for c in controllers:
-        print(c.keys())
-        html += f"""<a class=button1 target="_blank" style='position: static; margin-top:10px' href='/cfg_view.html?CFG_UID={c['cfg_uid']}'>{c['cfg_uid']}</a> <span class=desc><i>{c['cfg_title']}</i></span><br>"""
+    html = ''    
+    for c in flow_controllers:
+#        print(c.keys())
+        html += f"""<a class=button1 target="_blank" style='position: static; margin-top:10px' href='/cfg_view.html?CFG_UID={c['client_name']}'>{c['client_name']}</a> <span class=desc><i>{c['client_name']}</i></span><br>"""
     
     jsc['#picklist'].html = html 
     
@@ -411,26 +447,38 @@ def reconnect_index(jsc, *args):
 
 
 def reconnect(jsc, *args):
+    print('reconnect ', args)
     if args[1].startswith('/cfg_view.html'):
         return reconnect_cfg_view(jsc, *args)
     if args[1].startswith('/'):
         return reconnect_index(jsc, *args)
     print(args)
 
+
 def refresh_gui_nodes(jsc):
-    jsc.tag['FlowControllerJobsSnapshot'] = jsc.tag['FlowControllerRPC'].get_jobs_snapshot()
+    response = SMQC.send_message(SMQC.construct_msg('request_config', jsc.tag['cfg_uid'], {}), wait=5)
+    config = response['config']
+    jsc.tag['config'] = config
+    
+    
+    
+    
+    
+#    print(config)
+    
+#    jsc.tag['FlowControllerJobsSnapshot'] = jsc.tag['FlowControllerRPC'].get_jobs_snapshot()
 
     # load the logo
     try:
-        logo = base64.b64encode(jsc.tag['FlowControllerJobsSnapshot'].get_logo().data)
-        logo = "data:image/png;base64," + logo.decode()
-        jsc.eval_js_code(blocking=False, js_code=f"""gLogoImg.src = '{logo}';""")
+#        icon = base64.b64encode(jsc.tag['FlowControllerJobsSnapshot'].get_logo().data)
+        icon = "data:image/png;base64," + jsc.tag['icon']
+        jsc.eval_js_code(blocking=False, js_code=f"""gLogoImg.src = '{icon}';""")
     except Exception as e:
         print(e)
 
-    jsc.eval_js_code(blocking=False, js_code=f"""$('#title').html("{jsc.tag['FlowControllerJobsSnapshot']._cfg['title']}");""")
+    jsc.eval_js_code(blocking=False, js_code=f"""$('#title').html("{config['title']}");""")
 
-    jsc.tag['gui_nodes'] = _convert_cfg_to_gui_nodes(jsc.tag['FlowControllerJobsSnapshot'])
+    jsc.tag['gui_nodes'] = _convert_cfg_to_gui_nodes(config)
 
 
 def redraw_canvas(jsc):
@@ -465,29 +513,58 @@ def redraw_canvas(jsc):
     jsc.eval_js_code(blocking=False, js_code=js)
 
 
-def message_handler(smq_uid, msg, msg_data):
-    try:
-        if msg == 'FlowController.Changed':
-            print(msg)
-            for jsc in get_all_jsclients():
-                # TODO: we should decide this based on the page url in the jsc not beased on existence of this property
-                if 'FlowControllerInfo' in jsc.tag:
-                    if jsc.tag['FlowControllerInfo']:
-                        if jsc.tag['FlowControllerInfo']['cfg_uid'] == msg_data:
-                            refresh_gui_nodes(jsc)
-                            redraw_canvas(jsc)
-    except Exception:
-        logging.error(traceback.format_exc())
+# def message_handler(smq_uid, msg, msg_data):
+#     try:
+#         if msg == 'FlowController.Changed':
+#             print(msg)
+#             for jsc in get_all_jsclients():
+#                 # TODO: we should decide this based on the page url in the jsc not beased on existence of this property
+#                 if 'FlowControllerInfo' in jsc.tag:
+#                     if jsc.tag['FlowControllerInfo']:
+#                         if jsc.tag['FlowControllerInfo']['cfg_uid'] == msg_data:
+#                             refresh_gui_nodes(jsc)
+#                             redraw_canvas(jsc)
+#     except Exception:
+#         logging.error(traceback.format_exc())
 
+
+def on_job_state_changed(msg, smc):
+    for jsc in get_all_jsclients():
+        if jsc.tag.get('cfg_uid', None) == msg['sender_id']:
+            refresh_gui_nodes(jsc)
+            redraw_canvas(jsc)
+
+def on_config_changed(msg, smqc):
+    for jsc in get_all_jsclients():
+        if jsc.tag.get('cfg_uid', None) == msg['sender_id']:
+            refresh_gui_nodes(jsc)
+            redraw_canvas(jsc)
 
 # --------------------------------------------------
 #    Main
 # --------------------------------------------------
 def run(args):
     global SMQC
-    SMQC = SMQClient()
+
+
+ #       client_uid = self.get_client_id()
+ #       classifications = ['FlowController', client_uid]
+ #       pub_list = ['job_log_changed', 'job_state_changed']
+ #       sub_list = ['change_job_state', 'reload_config', 'request_config', 'request_icon', 'request_log_chunk',
+ #                   'trigger_job']
+    SMQC = SMQ_Client('http://' + args['smq_server'], 'Flow Controller WebApp', 'Flow Controller WebApp', ['WebApp'], [], [])
+#            self._job_manager.get_config_prop('smq_server'), client_uid, client_uid, classifications, pub_list, sub_list)
+
+
+    SMQC.add_message_handler('config_changed', on_config_changed)
+    SMQC.add_message_handler('job_state_changed', on_job_state_changed)
+
+    
+#    SMQC = SMQClient()
     try:
-        SMQC.start_client(args['smq_server'], 'Flow Controller WebApp', 'FlowController.Trigger', 'FlowController.Changed', message_handler)
+        SMQC.start()
+#        SMQC.start_client(args['smq_server'], 'Flow Controller WebApp', 'FlowController.Trigger', 'FlowController.Changed', message_handler)
+        
     except ConnectionRefusedError:
         SMQC = None
         logging.error('SMQ Server is not running!')
@@ -500,7 +577,7 @@ def run(args):
     default_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_webapp_index.html')
 
     run_pylinkjs_app(default_html=default_html_page, port=7010, login_html_page=login_html_page,
-                     html_dir=os.path.dirname(__file__), on_404=handle_404, onContextClose=close,
+                     html_dir=os.path.dirname(__file__), onContextClose=close,
                      heartbeat_callback=heartbeat_callback, heartbeat_interval=10)
 
 
@@ -511,7 +588,7 @@ if __name__ == "__main__":
     try:
         # parse the arguments
         parser = argparse.ArgumentParser(description='Flow Controller WebApp')
-        parser.add_argument('--smq_server', default='localhost:6500')
+        parser.add_argument('--smq_server', default='localhost:6050')
         args = parser.parse_args()
 
         # run
