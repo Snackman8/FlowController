@@ -277,13 +277,6 @@ def run(args):
 
 
 if __name__ == "__main__":
-    # setup logging
-    logging.getLogger().setLevel(logging.INFO)
-
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(threadName)s %(message)s'))
-    logging.getLogger().addHandler(console_handler)
-
     try:
         # parse the arguments
         parser = argparse.ArgumentParser(description='Flow Controller')
@@ -301,11 +294,12 @@ if __name__ == "__main__":
         parser.add_argument('--log_range', help='character range of the log to return, i.e. 0:1000 for the ' +
                                                 'first 1000 characters.  only used with the request_log_chunk ' +
                                                 'action', default='')
-        parser.add_argument('--console_log_level', default='ERROR')
+        parser.add_argument('--logging_level', default='ERROR')
         args = parser.parse_args()
 
-        # setup logging level
-        console_handler.setLevel(getattr(logging, args.console_log_level))
+        # setup logging
+        logging.basicConfig(level=logging.getLevelName(args.logging_level),
+                            format='%(asctime)s %(levelname)s %(threadName)s %(message)s')
         logging.info('Starting ', vars(args))
 
         # run
