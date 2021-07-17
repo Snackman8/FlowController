@@ -76,8 +76,9 @@ class JobManager():
     def get_log_filename(self, job_name, date=None):
         if date is None:
             date = datetime.datetime.now()
-        return os.path.abspath(os.path.join(self._cfg['job_logs_dir'],
-                                            f"{job_name}.{datetime.datetime.now().strftime('%Y%m%d')}.log"))
+        return os.path.abspath(os.path.join(
+            self._cfg['job_logs_dir'],
+            f"{self._cfg['uid']}.{job_name}.{datetime.datetime.now().strftime('%Y%m%d')}.log"))
 
     def process_jobs(self, smqc):
         # check if any jobs have all of their dependencies met, if so, change to pending
