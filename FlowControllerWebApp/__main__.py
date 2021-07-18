@@ -395,7 +395,7 @@ def reconnect_index(jsc, *_args):
     for c in flow_controllers:
         html += f"""<a class=button1 target="_blank" style='position: static; margin-top:10px'
                     href='/cfg_view.html?CFG_UID={c['client_name']}'>{c['client_name']}</a>
-                    <span class=desc><i>{c['client_name']}</i></span><br>"""
+                    <span class=desc><i>{c['tag']['title']}</i></span><br>"""
 
     jsc['#picklist'].html = html
 

@@ -148,7 +148,8 @@ class FlowController():
         pub_list = ['job_log_changed', 'job_state_changed']
         sub_list = ['change_job_state', 'reload_config', 'request_config', 'request_icon', 'request_log_chunk',
                     'trigger_job']
-        return SMQ_Client(self._job_manager.get_config_prop('smq_server'), client_uid, client_uid, classifications, pub_list, sub_list)
+        return SMQ_Client(self._job_manager.get_config_prop('smq_server'), client_uid, client_uid, classifications,
+                          pub_list, sub_list, tag={'title': self._job_manager.get_config_prop('title')})
 
     def build_smq_terminal_client(self):
         client_uid = 'FC_TERM_' + uuid.uuid4().hex
@@ -156,7 +157,8 @@ class FlowController():
         pub_list = ['change_job_state', 'reload_config', 'request_config', 'request_icon', 'request_log_chunk',
                     'trigger_job']
         sub_list = []
-        return SMQ_Client(self._job_manager.get_config_prop('smq_server'), client_uid, client_uid, classifications, pub_list, sub_list)
+        return SMQ_Client(self._job_manager.get_config_prop('smq_server'), client_uid, client_uid, classifications,
+                          pub_list, sub_list, tag={'title': self._job_manager.get_config_prop('title')})
 
     def get_client_id(self):
         return self._job_manager.get_config_prop('uid')
