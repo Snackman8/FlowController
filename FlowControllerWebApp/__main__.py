@@ -299,7 +299,8 @@ def heartbeat_callback():
 
         # check if the FlowControllerRPC is alive
         try:
-            SMQC.send_message(SMQC.construct_msg('ping', jsc.tag['cfg_uid'], {}), wait=2)
+            if not SMQC.is_alive(jsc.tag['cfg_uid']):
+                raise Exception('Dead')
             jsc.eval_js_code(blocking=False, js_code="clear_no_connection();")
         except Exception as _:
             jsc.eval_js_code(blocking=False, js_code="show_no_connection();")
@@ -472,7 +473,7 @@ def run(args):
     default_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_webapp_index.html')
 
     run_pylinkjs_app(default_html=default_html_page, port=7010, login_html_page=login_html_page,
-                     html_dir=os.path.dirname(__file__), heartbeat_callback=heartbeat_callback, heartbeat_interval=10)
+                     html_dir=os.path.dirname(__file__), heartbeat_callback=heartbeat_callback, heartbeat_interval=1)
 
 
 if __name__ == "__main__":
