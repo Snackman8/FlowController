@@ -200,17 +200,10 @@ class FlowController():
         all_client_info = client.get_info_for_all_clients()
 
         # verify this config_id is not already running
-        if self.get_client_id() in all_client_info:
+        if self.get_client_id() in all_client_info.keys():
             # send a ping to make sure
-            try:
-                client.send_message(client.construct_msg('ping', self.get_client_id(), {}), wait=3)
+            if client.is_alive(self.get_client_id()):
                 raise Exception(f'A Flow Controller config with uid of {self.get_client_id()} is already running')
-            except TimeoutError:
-                logging.info(f'A Flow controller config with uid of {self.get_client_id()} was detected, but appears ' +
-                             'to be dead and it will be removed')
-                # this is a pretty bad hack to disconnect the dead client.  Fix later by implementing a reverse RPC
-                # so the server can check if the client is alive
-                self._build_smq_client().stop(force=True)
 
         # start the SMQ_Client
         client = self._build_smq_client()
