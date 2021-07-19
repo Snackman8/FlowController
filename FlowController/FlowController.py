@@ -1,13 +1,16 @@
 import argparse
 import base64
 import copy
+import croniter
 import datetime
 from enum import Enum
 import logging
 import os
 import signal
+import subprocess
 import threading
 import time
+import traceback
 import uuid
 from SimpleMessageQueue.SMQ_Client import SMQ_Client
 try:
@@ -23,9 +26,70 @@ class JobManager():
     def __init__(self, config_filename, config_overrides={}):
         self._cfg = None
         self._config_filename = config_filename
+        self._current_date = datetime.datetime.now().strftime('%Y%m%d')
+        self._last_cron_check = datetime.datetime.now() - datetime.timedelta(seconds=60)
         self._ledger_lock = threading.Lock()
         self._config_override = config_overrides
         self.reload_config(None)
+
+    def _run_job_in_separate_process(self, smqc, FC_target_id, job_name, cwd, run_cmd, log_filename):
+        # TODO: Change to process and track PIDs in self._job_pids
+        def threadworker_run_job(job_name):
+            logger = logging.getLogger(f"{job_name}.{datetime.datetime.now().strftime('%Y%m%d')}")
+            logger.setLevel(logging.INFO)
+            if not logger.handlers:
+                file_handler = logging.FileHandler(filename=log_filename)
+                file_handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
+                logger.addHandler(file_handler)
+
+            logger.info('')
+            logger.info('')
+            logger.info('FlowController Starting Job')
+            logger.info('')
+            logger.info('')
+
+            if run_cmd is None:
+                smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
+                                                     {'job_name': job_name, 'new_state': 'FAILURE',
+                                                      'reason': 'missing run_cmd'}))
+                return
+
+            try:
+                # set the current working directory to the directory of the cfg file
+                proc = subprocess.Popen(run_cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
+
+                while True:
+                    output = proc.stdout.readline()
+                    if len(output) == 0 and proc.poll() is not None:
+                        break
+                    if output:
+                        logger.info(output.strip().decode())
+                        logger.handlers[0].flush()
+                        smqc.send_message(smqc.construct_msg('job_log_changed', FC_target_id, {'job_name': job_name}))
+
+                rc = proc.poll()
+                if rc == 0:
+                    smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
+                                                         {'job_name': job_name, 'new_state': 'SUCCESS', 'reason': 'Job Completed'}))
+
+                    # update cron time
+                    j = self._cfg['jobs'][job_name]
+                    if 'cron' in j:
+                        self._update_next_cron_fire_time(job_name, datetime.datetime.now())
+                else:
+                    smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
+                                                         {'job_name': job_name, 'new_state': 'FAILURE', 'reason': 'Job Completed'}))
+            except Exception as _:
+                logger.error(traceback.format_exc())
+                smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
+                                                     {'job_name': job_name, 'new_state': 'FAILURE', 'reason': 'Job Error'}))
+
+        t = threading.Thread(target=threadworker_run_job, args=(job_name,))
+        t.start()
+
+    def _update_next_cron_fire_time(self, job_name, base):
+        cron_iter = croniter.croniter(self._cfg['jobs'][job_name]['cron'], base)
+        self._cfg['jobs'][job_name]['next_cron_fire_time'] = cron_iter.get_next(datetime.datetime)
 
     def change_job_state(self, smqc, job_name, new_state, reason):
         # change the job state
@@ -85,24 +149,43 @@ class JobManager():
             f"{self._cfg['uid']}.{job_name}.{datetime.datetime.now().strftime('%Y%m%d')}.log"))
 
     def process_jobs(self, smqc):
-        # check if any jobs have all of their dependencies met, if so, change to pending
+        # check for a new day
+        if self._current_date != datetime.datetime.now().strftime('%Y%m%d'):
+            self._current_date = datetime.datetime.now().strftime('%Y%m%d')
+            self.reload_config(smqc)
+
+        # check if cron cooldown is passed
+        process_cron = False
+        cron_time = datetime.datetime.now()
+        if cron_time > self._last_cron_check + datetime.timedelta(seconds=60):
+            self._last_cron_check = cron_time
+            process_cron = True
+
+        # loop through all the jobs
         jobs = self._cfg['jobs']
         for jn, j in jobs.items():
             # skip any nodes that are not IDLE or do not have depends
-            if len(j.get('depends', [])) == 0 or j['state'] != JobState.IDLE:
+            if j['state'] != JobState.IDLE:
                 continue
 
-            # check if all dependencies are met
-            if all([(djn in jobs) and (jobs[djn]['state'] == JobState.SUCCESS) for djn in j['depends']]):
-                self.change_job_state(smqc, jn, JobState.PENDING, 'Dependencies Ready')
+            # check if any jobs have all of their dependencies met, if so, change to pending
+            if len(j.get('depends', [])) != 0:
+                # check if all dependencies are met
+                if all([(djn in jobs) and (jobs[djn]['state'] == JobState.SUCCESS) for djn in j['depends']]):
+                    self.change_job_state(smqc, jn, JobState.PENDING, 'Dependencies Ready')
 
-        # change any triggered cron jobs to pending
+            # process cron jobs
+            if process_cron:
+                if 'next_cron_fire_time' in j:
+                    if cron_time > j['next_cron_fire_time']:
+                        self._update_next_cron_fire_time(jn, cron_time)
+                        self.change_job_state(smqc, jn, JobState.PENDING, 'cron fire time')
 
         # execute any pending jobs
         for jn, j in jobs.items():
             if j['state'] == JobState.PENDING:
                 self.change_job_state(smqc, jn, JobState.RUNNING, 'pending')
-                FlowController_util.run_job_in_separate_process(
+                self._run_job_in_separate_process(
                     smqc=smqc, FC_target_id=self.get_config_prop('uid'), job_name=jn,
                     cwd=os.path.join(os.path.dirname(os.path.abspath(self._config_filename))),
                     run_cmd=self._cfg['jobs'][jn].get('run_cmd', None),
@@ -119,8 +202,11 @@ class JobManager():
                 self._cfg[k] = v
 
         # set all job states to idle
-        for _, j in self._cfg['jobs'].items():
+        cron_base = datetime.datetime.now()
+        for jn, j in self._cfg['jobs'].items():
             j['state'] = JobState.IDLE
+            if 'cron' in j:
+                self._update_next_cron_fire_time(jn, cron_base)
 
         # load the states from the ledger
         try:

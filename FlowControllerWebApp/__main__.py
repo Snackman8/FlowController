@@ -222,6 +222,19 @@ def _generate_draw_job_node_js(node_info):
     return js
 
 
+def _update_status_and_log(jsc, job_name):
+    html = ''
+    details = jsc.tag['config']['jobs'][job_name]
+    for k in sorted(details.keys()):
+        html += f'<span style="color: steelblue">{k} :</span> {details[k]}\n'
+
+    jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_status').html(`{html}`)""")
+
+    msg = SMQC.construct_msg('request_log_chunk', jsc.tag['cfg_uid'], {'job_name': job_name, 'range': ''})
+    response = SMQC.send_message(msg, wait=5)
+    jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_log').html(`{response['log']}`)""")
+
+
 # --------------------------------------------------
 #    Javascript Callbacks
 # --------------------------------------------------
@@ -241,21 +254,28 @@ def context_menu_click(jsc, item_text, job_name):
         SMQC.send_message(SMQC.construct_msg('trigger_job', jsc.tag['cfg_uid'],
                                              {'job_name': job_name,
                                               'reason': 'manually set by user ?'}))
+        refresh_status_and_log = True
 
     if item_text == 'Set as Ready':
         SMQC.send_message(SMQC.construct_msg('change_job_state', jsc.tag['cfg_uid'],
                                              {'job_name': job_name, 'new_state': 'IDLE',
                                               'reason': 'manually set by user ?'}))
+        refresh_status_and_log = True
 
     if item_text == 'Set as Success':
         SMQC.send_message(SMQC.construct_msg('change_job_state', jsc.tag['cfg_uid'],
                                              {'job_name': job_name, 'new_state': 'SUCCESS',
                                               'reason': 'manually set by user ?'}))
+        refresh_status_and_log = True
 
     if item_text == 'Set as Fail':
         SMQC.send_message(SMQC.construct_msg('change_job_state', jsc.tag['cfg_uid'],
                                              {'job_name': job_name, 'new_state': 'FAILURE',
                                               'reason': 'manually set by user ?'}))
+        refresh_status_and_log = True
+
+    if refresh_status_and_log:
+        _update_status_and_log(jsc, job_name)
 
 
 def canvas_click(jsc, x, y):
@@ -265,18 +285,7 @@ def canvas_click(jsc, x, y):
 
         if abs(x - j['x_render']) < j['icon_radius']:
             if abs(y - j['y_render']) < j['icon_radius']:
-
-                html = ''
-                details = jsc.tag['config']['jobs'][j['name']]
-                for k in sorted(details.keys()):
-                    html += f'<span style="color: steelblue">{k} :</span> {details[k]}\n'
-
-                jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_status').html(`{html}`)""")
-
-                msg = SMQC.construct_msg('request_log_chunk', jsc.tag['cfg_uid'], {'job_name': j['name'], 'range': ''})
-                response = SMQC.send_message(msg, wait=5)
-                jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_log').html(`{response['log']}`)""")
-
+                _update_status_and_log(jsc, j['name'])
                 return
 
 

@@ -25,55 +25,58 @@ def read_cfg_file(cfg_filename):
     return cfg
 
 
-def run_job_in_separate_process(smqc, FC_target_id, job_name, cwd, run_cmd, log_filename):
-    # TODO: Change to process and track PIDs in self._job_pids
-    def threadworker_run_job(job_name):
-        logger = logging.getLogger(f"{job_name}.{datetime.datetime.now().strftime('%Y%m%d')}")
-        logger.setLevel(logging.INFO)
-        if not logger.handlers:
-            file_handler = logging.FileHandler(filename=log_filename)
-            file_handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
-            logger.addHandler(file_handler)
-
-        logger.info('')
-        logger.info('')
-        logger.info('FlowController Starting Job')
-        logger.info('')
-        logger.info('')
-        
-        if run_cmd is None:
-            smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
-                                                 {'job_name': job_name, 'new_state': 'FAILURE',
-                                                  'reason': 'missing run_cmd'}))
-            return
-            
-        try:
-            # set the current working directory to the directory of the cfg file
-            proc = subprocess.Popen(run_cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
-                
-            while True:
-                output = proc.stdout.readline()
-                if len(output) == 0 and proc.poll() is not None:
-                    break
-                if output:
-                    logger.info(output.strip().decode())
-                    logger.handlers[0].flush()
-                    smqc.send_message(smqc.construct_msg('job_log_changed', FC_target_id, {'job_name': job_name}))
-
-            rc = proc.poll()
-            if rc == 0:
-                smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
-                                                     {'job_name': job_name, 'new_state': 'SUCCESS', 'reason': 'Job Completed'}))
-            else:
-                smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
-                                                     {'job_name': job_name, 'new_state': 'FAILURE', 'reason': 'Job Completed'}))
-        except:
-            logger.error(traceback.format_exc())
-            msg = smqc.construct_msg('change_job_state', FC_target_id,
-                                     {'job_name': job_name, 'new_state': 'FAILURE', 'reason': 'Job Error'})
-
-    t = threading.Thread(target=threadworker_run_job, args=(job_name,))
-    t.start()
+# def run_job_in_separate_process(smqc, FC_target_id, job_name, cwd, run_cmd, log_filename):
+#     # TODO: Change to process and track PIDs in self._job_pids
+#     def threadworker_run_job(job_name):
+#         logger = logging.getLogger(f"{job_name}.{datetime.datetime.now().strftime('%Y%m%d')}")
+#         logger.setLevel(logging.INFO)
+#         if not logger.handlers:
+#             file_handler = logging.FileHandler(filename=log_filename)
+#             file_handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
+#             logger.addHandler(file_handler)
+# 
+#         logger.info('')
+#         logger.info('')
+#         logger.info('FlowController Starting Job')
+#         logger.info('')
+#         logger.info('')
+#         
+#         if run_cmd is None:
+#             smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
+#                                                  {'job_name': job_name, 'new_state': 'FAILURE',
+#                                                   'reason': 'missing run_cmd'}))
+#             return
+#             
+#         try:
+#             # set the current working directory to the directory of the cfg file
+#             proc = subprocess.Popen(run_cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
+#                 
+#             while True:
+#                 output = proc.stdout.readline()
+#                 if len(output) == 0 and proc.poll() is not None:
+#                     break
+#                 if output:
+#                     logger.info(output.strip().decode())
+#                     logger.handlers[0].flush()
+#                     smqc.send_message(smqc.construct_msg('job_log_changed', FC_target_id, {'job_name': job_name}))
+# 
+#             rc = proc.poll()
+#             if rc == 0:
+#                 smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
+#                                                      {'job_name': job_name, 'new_state': 'SUCCESS', 'reason': 'Job Completed'}))
+# 
+# 
+# 
+#             else:
+#                 smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
+#                                                      {'job_name': job_name, 'new_state': 'FAILURE', 'reason': 'Job Completed'}))
+#         except:
+#             logger.error(traceback.format_exc())
+#             msg = smqc.construct_msg('change_job_state', FC_target_id,
+#                                      {'job_name': job_name, 'new_state': 'FAILURE', 'reason': 'Job Error'})
+# 
+#     t = threading.Thread(target=threadworker_run_job, args=(job_name,))
+#     t.start()
 
 
 class FlowControllerLedger():
