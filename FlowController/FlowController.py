@@ -20,10 +20,11 @@ JobState = Enum('JobState', 'IDLE PENDING RUNNING SUCCESS FAILURE')
 
 
 class JobManager():
-    def __init__(self, config_filename):
+    def __init__(self, config_filename, config_overrides={}):
         self._cfg = None
         self._config_filename = config_filename
         self._ledger_lock = threading.Lock()
+        self._config_override = config_overrides
         self.reload_config(None)
 
     def change_job_state(self, smqc, job_name, new_state, reason):
@@ -37,6 +38,9 @@ class JobManager():
 
         # broadcast config_changed
         smqc.send_message(smqc.construct_msg('job_state_changed', '*', {'job_name': job_name, 'new_state': new_state.name}))
+
+        # success
+        return {'retval': 0}
 
     def get_config_prop(self, prop):
         """ read a property from the config file.
@@ -109,6 +113,11 @@ class JobManager():
         # read the config file
         self._cfg = FlowController_util.read_cfg_file(self._config_filename)
 
+        for k, v in self._config_override.items():
+            if v is not None:
+                logging.info(f'Overriding {k} in config.  Old value was {self._cfg.get(k, "?")}, new value is {v}')
+                self._cfg[k] = v
+
         # set all job states to idle
         for _, j in self._cfg['jobs'].items():
             j['state'] = JobState.IDLE
@@ -127,6 +136,9 @@ class JobManager():
         if smqc is not None:
             smqc.send_message(smqc.construct_msg('config_changed', '*', {}))
 
+        # success
+        return {'retval': 0}
+
     def trigger_job(self, smqc, job_name, reason):
         """ trigger a job
 
@@ -134,19 +146,20 @@ class JobManager():
                 job_name - name of the job to trigger
         """
         self.change_job_state(smqc, job_name, JobState.PENDING, reason)
+        return {'retval': 0}
 
 
 class FlowController():
-    def __init__(self, config_filename):
+    def __init__(self, config_filename, config_overrides={}):
         """ init """
         self._shutdown = False
-        self._job_manager = JobManager(config_filename)
+        self._job_manager = JobManager(config_filename, config_overrides)
 
     def _build_smq_client(self):
         client_uid = self.get_client_id()
         classifications = ['FlowController', client_uid]
-        pub_list = ['job_log_changed', 'job_state_changed']
-        sub_list = ['change_job_state', 'reload_config', 'request_config', 'request_icon', 'request_log_chunk',
+        pub_list = ['change_job_state', 'config_changed', 'job_log_changed', 'job_state_changed']
+        sub_list = ['change_job_state', 'ping', 'reload_config', 'request_config', 'request_icon', 'request_log_chunk',
                     'trigger_job']
         return SMQ_Client(self._job_manager.get_config_prop('smq_server'), client_uid, client_uid, classifications,
                           pub_list, sub_list, tag={'title': self._job_manager.get_config_prop('title')})
@@ -154,7 +167,7 @@ class FlowController():
     def build_smq_terminal_client(self):
         client_uid = 'FC_TERM_' + uuid.uuid4().hex
         classifications = ['FlowController_Terminal']
-        pub_list = ['change_job_state', 'reload_config', 'request_config', 'request_icon', 'request_log_chunk',
+        pub_list = ['change_job_state', 'ping', 'reload_config', 'request_config', 'request_icon', 'request_log_chunk',
                     'trigger_job']
         sub_list = []
         return SMQ_Client(self._job_manager.get_config_prop('smq_server'), client_uid, client_uid, classifications,
@@ -164,8 +177,11 @@ class FlowController():
         return self._job_manager.get_config_prop('uid')
 
     def _main_loop(self, smqc):
-        signal.signal(signal.SIGTERM, lambda _a, _b: self.stop())
-        signal.signal(signal.SIGINT, lambda _a, _b: self.stop())
+        try:
+            signal.signal(signal.SIGTERM, lambda _a, _b: self.stop())
+            signal.signal(signal.SIGINT, lambda _a, _b: self.stop())
+        except ValueError as e:
+            logging.info(e)
 
         while not self._shutdown:
             self._job_manager.process_jobs(smqc)
@@ -228,14 +244,19 @@ def run(args):
     """ run """
     client = None
     try:
-        FC = FlowController(args['config'])
+        overrides = {}
+        for k, v in args.items():
+            if k.startswith('override_'):
+                overrides[k[9:]] = v
+
+        FC = FlowController(args['config'], overrides)
         if not os.path.exists(FC._job_manager.get_config_prop('ledger_dir')):
             os.makedirs(FC._job_manager.get_config_prop('ledger_dir'))
         if not os.path.exists(FC._job_manager.get_config_prop('job_logs_dir')):
             os.makedirs(FC._job_manager.get_config_prop('job_logs_dir'))
 
         # start the server if requested
-        if args['start']:
+        if args.get('start', False):
             return FC.start()
 
         # build a terminal client
@@ -243,23 +264,27 @@ def run(args):
         client.start()
 
         # handle list
-        if args['list']:
+        if args.get('list', False):
             # list the running flow controllers
             all_client_info = client.get_info_for_all_clients()
+            s = ''
             for k, v in all_client_info.items():
-                print(k, v)
-            return
+                s += f'{k}\t{v}\n'
+                print(f'{k}\t{v}')
+            return s
 
         # handle status
-        if args['status']:
+        if args.get('status', False):
             msg = client.construct_msg('request_config', FC.get_client_id(), {})
             response_payload = client.send_message(msg, wait=5)
+            s = ''
             for j in response_payload['config']['jobs'].values():
+                s += f'{j["name"]}: {j["state"]}\n'
                 print(f'{j["name"]}: {j["state"]}')
-            return
+            return s
 
         # handle actions
-        if args['action'] is not None:
+        if args.get('action', None) is not None:
             if args['action'] == 'change_job_state':
                 payload = {'job_name': args['job_name'], 'new_state': args['new_state'], 'reason': 'terminal'}
             if args['action'] in ('ping', 'reload_config', 'request_config', 'request_icon'):
@@ -271,7 +296,7 @@ def run(args):
 
             msg = client.construct_msg(args['action'], FC.get_client_id(), payload)
             response_payload = client.send_message(msg, wait=5)
-            print(response_payload)
+            return response_payload
     except ConnectionRefusedError:
         logging.error(f'SMQ Server at {FC._job_manager.get_config_prop("smq_server")} is refusing connection')
     finally:
@@ -298,6 +323,9 @@ if __name__ == "__main__":
                                                 'first 1000 characters.  only used with the request_log_chunk ' +
                                                 'action', default='')
         parser.add_argument('--logging_level', default='ERROR')
+        parser.add_argument('--override_smq_server', help='override the sqm_server value in the config file')
+        parser.add_argument('--override_ledger_dir', help='override the ledger_dir value in the config file')
+        parser.add_argument('--override_job_logs_dir', help='override the job_logs_dir value in the config file')
         args = parser.parse_args()
 
         # setup logging

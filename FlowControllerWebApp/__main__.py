@@ -452,7 +452,9 @@ def run(args):
 
     # configure the SMQ Client
     SMQC = SMQ_Client('http://' + args['smq_server'], 'Flow Controller WebApp', 'Flow Controller WebApp', ['WebApp'],
-                      [], [])
+                      ['change_job_state', 'ping', 'reload_config', 'request_config', 'request_icon',
+                       'request_log_chunk', 'trigger_job'],
+                      ['config_changed', 'job_log_changed', 'job_state_changed'])
     SMQC.add_message_handler('config_changed', on_job_state_changed_or_on_config_changed)
     SMQC.add_message_handler('job_state_changed', on_job_state_changed_or_on_config_changed)
     try:

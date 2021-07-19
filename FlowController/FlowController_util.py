@@ -5,6 +5,7 @@ import os
 import pandas as pd
 import subprocess
 import threading
+import traceback
 
 def read_cfg_file(cfg_filename):
     # execute the config to get the output
@@ -42,7 +43,7 @@ def run_job_in_separate_process(smqc, FC_target_id, job_name, cwd, run_cmd, log_
         
         if run_cmd is None:
             smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
-                                                 {'job_name': job_name, 'new_state': 'FAIL',
+                                                 {'job_name': job_name, 'new_state': 'FAILURE',
                                                   'reason': 'missing run_cmd'}))
             return
             
@@ -65,11 +66,11 @@ def run_job_in_separate_process(smqc, FC_target_id, job_name, cwd, run_cmd, log_
                                                      {'job_name': job_name, 'new_state': 'SUCCESS', 'reason': 'Job Completed'}))
             else:
                 smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
-                                                     {'job_name': job_name, 'new_state': 'FAIL', 'reason': 'Job Completed'}))
+                                                     {'job_name': job_name, 'new_state': 'FAILURE', 'reason': 'Job Completed'}))
         except:
             logger.error(traceback.format_exc())
             msg = smqc.construct_msg('change_job_state', FC_target_id,
-                                     {'job_name': job_name, 'new_state': 'FAIL', 'reason': 'Job Error'})
+                                     {'job_name': job_name, 'new_state': 'FAILURE', 'reason': 'Job Error'})
 
     t = threading.Thread(target=threadworker_run_job, args=(job_name,))
     t.start()
