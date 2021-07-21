@@ -30,7 +30,7 @@
             <div></div><div></div><div></div>
         </a>
         
-        <a id=btn_login   href='/login' class="button1" >Login</a>
+        <a id=btn_login   href='' class="button1" >Login</a>
         <a id=btn_logout   href='/logout' class="button1" >Logout</a>
         <a id=btn_autofit href='' class="button1" onclick="canvasViewportAutofit(gBoundingBox); return false;">Autofit</a>
         <a id=btn_refresh href='' class="button1" onclick="force_refresh(); return false;">Refresh</a>
@@ -81,13 +81,11 @@
                 $('#adminMenu').css('display', 'none');
             }
         }
-
-
-                
     }
 
     // document ready handler
     $( document ).ready(function() {
+        $('#btn_login').attr('href', '/login?next=' + encodeURIComponent(window.location.href));
         $(".contextMenuItem").click(contextMenuClicked);
         canvasViewportInit("myCanvas", refreshCurrentCanvasFrame);
         window_resize();

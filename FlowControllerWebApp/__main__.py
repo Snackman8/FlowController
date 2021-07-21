@@ -9,6 +9,7 @@ import traceback
 from urllib.parse import parse_qs
 
 from pylinkjs.PyLinkJS import run_pylinkjs_app, get_all_jsclients
+from pylinkjs.GoogleOAuth2 import GoogleOAuth2LoginHandler, LogoutHandler
 from FlowController.FlowController import JobState
 from SimpleMessageQueue.SMQ_Client import SMQ_Client
 
@@ -478,11 +479,22 @@ def run(args):
     signal.signal(signal.SIGINT, lambda _a, _b: SMQC.shutdown())
 
     # run the app
-    login_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_login.html')
     default_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_webapp_index.html')
+    extra_settings = {}
+    run_kwargs = {}
+    run_kwargs['default_html'] = default_html_page
+    run_kwargs['port'] = 7010
+    run_kwargs['html_dir'] = os.path.dirname(__file__)
+    run_kwargs['heartbeat_callback'] = heartbeat_callback
+    run_kwargs['heartbeat_interval'] = 1
+    if args['oauth2_clientid'] is not None:
+        extra_settings['google_oauth'] = {"key": args['oauth2_clientid'], "secret": args['oauth2_secret']}
+        extra_settings['google_oauth_redirect_uri'] = 'http://localhost:7010/login'
+        run_kwargs['login_handler'] = GoogleOAuth2LoginHandler
+        run_kwargs['logout_handler'] = LogoutHandler
+    run_kwargs['extra_settings'] = extra_settings
 
-    run_pylinkjs_app(default_html=default_html_page, port=7010, login_html_page=login_html_page,
-                     html_dir=os.path.dirname(__file__), heartbeat_callback=heartbeat_callback, heartbeat_interval=1)
+    run_pylinkjs_app(**run_kwargs)
 
 
 if __name__ == "__main__":
@@ -491,6 +503,8 @@ if __name__ == "__main__":
         parser = argparse.ArgumentParser(description='Flow Controller WebApp')
         parser.add_argument('--smq_server', default='localhost:6050')
         parser.add_argument('--logging_level', default='INFO', help='logging level')
+        parser.add_argument('--oauth2_clientid', help='google oath2 client id')
+        parser.add_argument('--oauth2_secret', help='google oath2 secret')
         args = parser.parse_args()
 
         # setup logging
