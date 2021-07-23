@@ -31,7 +31,6 @@
         </a>
         
         <a id=btn_login   href='' class="button1" >Login</a>
-        <a id=btn_logout   href='/logout' class="button1" >Logout</a>
         <a id=btn_autofit href='' class="button1" onclick="canvasViewportAutofit(gBoundingBox); return false;">Autofit</a>
         <a id=btn_refresh href='' class="button1" onclick="force_refresh(); return false;">Refresh</a>
         <div id=legend>
@@ -45,6 +44,7 @@
         Connection to Flow Controller Lost!<br><br>Refresh this page to attempt to restore.
         </div>
         <canvas id="myCanvas" style="z-index:-1"></canvas>        
+        <a id=btn_logout   href='/logout' class="button1" >Logout</a>
     </div>
     <div id="split-1" class="splitter_pane" style="display: flex; flex-direction: column;">
         <div id="split-1-0">
@@ -154,7 +154,7 @@
         $('#btn_autofit').css({'left': (gCanvas.width - 200), 'top': (gCanvas.height - 24)});
         $('#btn_refresh').css({'left': (gCanvas.width - 100), 'top': (gCanvas.height - 24)});
         $('#btn_login').css({'left': (gCanvas.width - 80), 'top': gCanvas.offsetTop + 8});
-        $('#btn_logout').css({'left': (gCanvas.width - 84), 'top': gCanvas.offsetTop + 8});
+        $('#btn_logout').css({'left': (gCanvas.width - $('#btn_logout').width() - 40), 'top': gCanvas.offsetTop + 8});
         $('#user').css({'left': (gCanvas.width - $('#user').width() - 84), 'top': gCanvas.offsetTop + 50});
         $('#btn_hamburger').css({'left': 20, 'top': 30});
 

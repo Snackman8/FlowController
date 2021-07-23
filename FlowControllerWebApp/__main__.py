@@ -224,16 +224,20 @@ def _generate_draw_job_node_js(node_info):
 
 
 def _update_status_and_log(jsc, job_name):
+    jsc.tag['current_job_selected'] = job_name
+    msg = SMQC.construct_msg('request_log_chunk', jsc.tag['cfg_uid'], {'job_name': job_name, 'range': ''})
+    response = SMQC.send_message(msg, wait=5)
+    jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_log').html(`{response['log']}`); $('#pre_log').scrollTop($('#pre_log')[0].scrollHeight)""")
+
+    response = SMQC.send_message(SMQC.construct_msg('request_config', jsc.tag['cfg_uid'], {}), wait=5)
+    jsc.tag['config'] = response['config']
+
     html = ''
     details = jsc.tag['config']['jobs'][job_name]
     for k in sorted(details.keys()):
         html += f'<span style="color: steelblue">{k} :</span> {details[k]}\n'
 
     jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_status').html(`{html}`)""")
-
-    msg = SMQC.construct_msg('request_log_chunk', jsc.tag['cfg_uid'], {'job_name': job_name, 'range': ''})
-    response = SMQC.send_message(msg, wait=5)
-    jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_log').html(`{response['log']}`)""")
 
 
 # --------------------------------------------------
@@ -254,25 +258,25 @@ def context_menu_click(jsc, item_text, job_name):
     if item_text == 'Trigger Job':
         SMQC.send_message(SMQC.construct_msg('trigger_job', jsc.tag['cfg_uid'],
                                              {'job_name': job_name,
-                                              'reason': 'manually set by user ?'}))
+                                              'reason': f'manually set by user {jsc.user}'}))
         refresh_status_and_log = True
 
     if item_text == 'Set as Ready':
         SMQC.send_message(SMQC.construct_msg('change_job_state', jsc.tag['cfg_uid'],
                                              {'job_name': job_name, 'new_state': 'IDLE',
-                                              'reason': 'manually set by user ?'}))
+                                              'reason': f'manually set by user {jsc.user}'}))
         refresh_status_and_log = True
 
     if item_text == 'Set as Success':
         SMQC.send_message(SMQC.construct_msg('change_job_state', jsc.tag['cfg_uid'],
                                              {'job_name': job_name, 'new_state': 'SUCCESS',
-                                              'reason': 'manually set by user ?'}))
+                                              'reason': f'manually set by user {jsc.user}'}))
         refresh_status_and_log = True
 
     if item_text == 'Set as Fail':
         SMQC.send_message(SMQC.construct_msg('change_job_state', jsc.tag['cfg_uid'],
                                              {'job_name': job_name, 'new_state': 'FAILURE',
-                                              'reason': 'manually set by user ?'}))
+                                              'reason': f'manually set by user {jsc.user}'}))
         refresh_status_and_log = True
 
     if refresh_status_and_log:
@@ -333,7 +337,7 @@ def ready_cfg_view(jsc, *args):
     jsc.eval_js_code(blocking=False, js_code="canvasViewportAutofit(gBoundingBox)")
     if jsc.user is not None:
         jsc.eval_js_code(blocking=False, js_code="$('#btn_login').css('display', 'none')")
-        jsc.eval_js_code(blocking=False, js_code=f"$('#btn_logout').html('Logout<br><br>{jsc.user.decode()}')")
+        jsc.eval_js_code(blocking=False, js_code=f"$('#btn_logout').html('Logout<br><br>{jsc.user}')")
         jsc.eval_js_code(blocking=False, js_code="$('#btn_logout').css('display', 'inline-block')")
     else:
         jsc.eval_js_code(blocking=False, js_code="$('#btn_login').css('display', 'inline-block')")
@@ -341,6 +345,9 @@ def ready_cfg_view(jsc, *args):
         jsc.eval_js_code(blocking=False, js_code="$('#btn_logout').html('Logout')")
         jsc.eval_js_code(blocking=False, js_code="$('#adminMenu').addClass('disabled')")
         jsc.eval_js_code(blocking=False, js_code="$('#contextMenu').addClass('disabled')")
+
+    # request a resize because logout button has changed size
+    jsc.eval_js_code(blocking=False, js_code="onDragEndHandler();")
 
 
 def ready_index(jsc, *args):
@@ -352,6 +359,15 @@ def ready(jsc, *args):
         return ready_cfg_view(jsc, *args)
     if args[1].startswith('/'):
         return ready_index(jsc, *args)
+
+
+def reconnect(jsc, *args):
+    """ called by pylinkjs when browser reconnects if failed network connection or webapp is restarted """
+    if args[1].startswith('/cfg_view.html'):
+        return reconnect_cfg_view(jsc, *args)
+    if args[1].startswith('/'):
+        return reconnect_index(jsc, *args)
+    print(args)
 
 
 def reconnect_cfg_view(jsc, *args):
@@ -448,6 +464,14 @@ def redraw_canvas(jsc):
     jsc.eval_js_code(blocking=False, js_code=js)
 
 
+def on_job_log_changed(msg, _smc):
+    print('job log changed!')
+    for jsc in get_all_jsclients():
+        if jsc.tag.get('cfg_uid', None) == msg['sender_id']:
+            if jsc.tag.get('current_job_selected', None) == msg['payload']['job_name']:
+                _update_status_and_log(jsc, jsc.tag['current_job_selected'])
+
+
 def on_job_state_changed_or_on_config_changed(msg, _smc):
     for jsc in get_all_jsclients():
         if jsc.tag.get('cfg_uid', None) == msg['sender_id']:
@@ -468,6 +492,7 @@ def run(args):
                       ['config_changed', 'job_log_changed', 'job_state_changed'])
     SMQC.add_message_handler('config_changed', on_job_state_changed_or_on_config_changed)
     SMQC.add_message_handler('job_state_changed', on_job_state_changed_or_on_config_changed)
+    SMQC.add_message_handler('job_log_changed', on_job_log_changed)
     try:
         SMQC.start()
     except ConnectionRefusedError:

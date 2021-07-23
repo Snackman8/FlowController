@@ -4,7 +4,6 @@
 #    Import
 # --------------------------------------------------
 import argparse
-import logging
 import os
 import time
 
@@ -19,7 +18,10 @@ def run(args):
     print(f"ECHO TEXT = {args['echo_text']}")
 
     # sleep
-    time.sleep(int(args['sleep_time']))
+#    time.sleep(int(args['sleep_time']))
+    for i in range(0, 20):
+        time.sleep(0.1)
+        print(i, flush=True)
 
     print("EXITING")
     exit(0)
