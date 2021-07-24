@@ -3,10 +3,12 @@ import base64
 import copy
 import croniter
 import datetime
+from email.message import EmailMessage
 from enum import Enum
 import logging
 import os
 import signal
+import smtplib
 import subprocess
 import threading
 import time
@@ -32,9 +34,10 @@ class JobManager():
         self._config_override = config_overrides
         self.reload_config(None)
 
-    def _run_job_in_separate_process(self, smqc, FC_target_id, job_name, cwd, run_cmd, log_filename):
+    def _run_job_in_separate_process(self, smqc, FC_target_id, job_name, cwd, run_cmd, log_filename,
+                                     success_email_recipients, failure_email_recipients):
         # TODO: Change to process and track PIDs in self._job_pids
-        def threadworker_run_job(job_name):
+        def threadworker_run_job():
             logger = logging.getLogger(f"{job_name}.{datetime.datetime.now().strftime('%Y%m%d')}")
             logger.setLevel(logging.INFO)
 
@@ -59,17 +62,17 @@ class JobManager():
                     # set the current working directory to the directory of the cfg file
                     proc = subprocess.Popen(run_cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
 
+                    job_output = b''
                     while True:
                         output = proc.stdout.readline()
-                        print('READLINE!')
                         if len(output) == 0 and proc.poll() is not None:
-                            print('BREAKING!')
                             break
                         if output:
-                            print('OUTPUT!')
+                            job_output += output + b'\n'
                             logger.info(output.strip().decode())
                             logger.handlers[0].flush()
                             smqc.send_message(smqc.construct_msg('job_log_changed', '*', {'job_name': job_name}))
+                    job_output = job_output.decode()
 
                     rc = proc.poll()
                     if rc == 0:
@@ -80,9 +83,14 @@ class JobManager():
                         j = self._cfg['jobs'][job_name]
                         if 'cron' in j:
                             self._update_next_cron_fire_time(job_name, datetime.datetime.now())
+
+                        self._send_email(subject=f'SUCCEEDED {job_name}', body=job_output,
+                                         recipients=success_email_recipients)
                     else:
                         smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
                                                              {'job_name': job_name, 'new_state': 'FAILURE', 'reason': 'Job Completed'}))
+                        self._send_email(subject=f'FAILED {job_name}', body=job_output,
+                                         recipients=failure_email_recipients)
                 except Exception as _:
                     logger.error(traceback.format_exc())
                     smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
@@ -91,8 +99,23 @@ class JobManager():
                 file_handler.close()
                 logger.removeHandler(file_handler)
 
-        t = threading.Thread(target=threadworker_run_job, args=(job_name,))
+        t = threading.Thread(target=threadworker_run_job, args=())
         t.start()
+
+    def _send_email(self, subject, body, recipients):
+        logging.info('SENDING EMAIL!', subject, recipients, body)
+        if recipients is None or recipients.strip() == '':
+            logging.info('NOT SEND SENDING EMAIL!')
+            return
+        msg = EmailMessage()
+        msg.set_content(body)
+
+        msg['Subject'] = subject
+        msg['From'] = self._cfg.get('email_sender', '')
+        msg['To'] = recipients
+        s = smtplib.SMTP('localhost')
+        s.send_message(msg)
+        s.quit()
 
     def _update_next_cron_fire_time(self, job_name, base):
         cron_iter = croniter.croniter(self._cfg['jobs'][job_name]['cron'], base)
@@ -196,7 +219,9 @@ class JobManager():
                     smqc=smqc, FC_target_id=self.get_config_prop('uid'), job_name=jn,
                     cwd=os.path.join(os.path.dirname(os.path.abspath(self._config_filename))),
                     run_cmd=self._cfg['jobs'][jn].get('run_cmd', None),
-                    log_filename=self.get_log_filename(jn))
+                    log_filename=self.get_log_filename(jn),
+                    success_email_recipients=self._cfg['jobs'][jn].get('success_email_recipients', None),
+                    failure_email_recipients=self._cfg['jobs'][jn].get('failure_email_recipients', None))
 
     def reload_config(self, smqc):
         """ reload the config and broadcast a config_changed message """
@@ -208,12 +233,14 @@ class JobManager():
                 logging.info(f'Overriding {k} in config.  Old value was {self._cfg.get(k, "?")}, new value is {v}')
                 self._cfg[k] = v
 
-        # set all job states to idle
+        # set all job states to idle, setup the next cron fire time, and inject email addresses
         cron_base = datetime.datetime.now()
         for jn, j in self._cfg['jobs'].items():
             j['state'] = JobState.IDLE
             if 'cron' in j:
                 self._update_next_cron_fire_time(jn, cron_base)
+            j['success_email_recipients'] = j.get('success_email_recipients', self._cfg['success_email_recipients'])
+            j['failure_email_recipients'] = j.get('failure_email_recipients', self._cfg['failure_email_recipients'])
 
         # load the states from the ledger
         try:

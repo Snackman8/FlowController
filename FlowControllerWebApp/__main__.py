@@ -367,7 +367,6 @@ def reconnect(jsc, *args):
         return reconnect_cfg_view(jsc, *args)
     if args[1].startswith('/'):
         return reconnect_index(jsc, *args)
-    print(args)
 
 
 def reconnect_cfg_view(jsc, *args):
@@ -465,7 +464,6 @@ def redraw_canvas(jsc):
 
 
 def on_job_log_changed(msg, _smc):
-    print('job log changed!')
     for jsc in get_all_jsclients():
         if jsc.tag.get('cfg_uid', None) == msg['sender_id']:
             if jsc.tag.get('current_job_selected', None) == msg['payload']['job_name']:

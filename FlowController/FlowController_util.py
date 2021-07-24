@@ -7,6 +7,7 @@ import subprocess
 import threading
 import traceback
 
+
 def read_cfg_file(cfg_filename):
     # execute the config to get the output
     proc = subprocess.Popen(['python3', cfg_filename], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -18,10 +19,13 @@ def read_cfg_file(cfg_filename):
         raise Exception('Error interpreting config file')
     cfg = ast.literal_eval(stdout.decode())
 
-    cfg['jobs'] = {j['name']:j for j in cfg['jobs']}
+    cfg['jobs'] = {j['name']: j for j in cfg['jobs']}
     cfg['smq_server'] = f'http://{cfg["smq_server"]}'
     cfg['ledger_dir'] = os.path.join(os.path.dirname(os.path.abspath(cfg_filename)), cfg['ledger_dir'])
     cfg['job_logs_dir'] = os.path.join(os.path.dirname(os.path.abspath(cfg_filename)), cfg['job_logs_dir'])
+    cfg['email_sender'] = cfg.get('email_sender', None)
+    cfg['success_email_recipients'] = cfg.get('success_email_recipients', None)
+    cfg['failure_email_recipients'] = cfg.get('failure_email_recipients', None)
     return cfg
 
 
