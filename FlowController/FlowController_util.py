@@ -26,6 +26,8 @@ def read_cfg_file(cfg_filename):
     cfg['email_sender'] = cfg.get('email_sender', None)
     cfg['success_email_recipients'] = cfg.get('success_email_recipients', None)
     cfg['failure_email_recipients'] = cfg.get('failure_email_recipients', None)
+    cfg['success_slack_webhook'] = cfg.get('success_slack_webhook', None)
+    cfg['failure_slack_webhook'] = cfg.get('failure_slack_webhook', None)
     return cfg
 
 

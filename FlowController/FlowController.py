@@ -5,8 +5,10 @@ import croniter
 import datetime
 from email.message import EmailMessage
 from enum import Enum
+import json
 import logging
 import os
+import requests
 import signal
 import smtplib
 import subprocess
@@ -35,7 +37,8 @@ class JobManager():
         self.reload_config(None)
 
     def _run_job_in_separate_process(self, smqc, FC_target_id, job_name, cwd, run_cmd, log_filename,
-                                     success_email_recipients, failure_email_recipients):
+                                     success_email_recipients, failure_email_recipients,
+                                     success_slack_webhook, failure_slack_webhook):
         # TODO: Change to process and track PIDs in self._job_pids
         def threadworker_run_job():
             logger = logging.getLogger(f"{job_name}.{datetime.datetime.now().strftime('%Y%m%d')}")
@@ -86,11 +89,13 @@ class JobManager():
 
                         self._send_email(subject=f'SUCCEEDED {job_name}', body=job_output,
                                          recipients=success_email_recipients)
+                        self._send_slack(text=f'SUCCEEDED {job_name}', webhook_url=success_slack_webhook)
                     else:
                         smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
                                                              {'job_name': job_name, 'new_state': 'FAILURE', 'reason': 'Job Completed'}))
                         self._send_email(subject=f'FAILED {job_name}', body=job_output,
                                          recipients=failure_email_recipients)
+                        self._send_slack(text=f'FAILED {job_name}', webhook_url=failure_slack_webhook)
                 except Exception as _:
                     logger.error(traceback.format_exc())
                     smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
@@ -103,7 +108,7 @@ class JobManager():
         t.start()
 
     def _send_email(self, subject, body, recipients):
-        logging.info('SENDING EMAIL!', subject, recipients, body)
+        logging.info(f'SENDING EMAIL! {subject} {recipients} {body}')
         if recipients is None or recipients.strip() == '':
             logging.info('NOT SEND SENDING EMAIL!')
             return
@@ -116,6 +121,17 @@ class JobManager():
         s = smtplib.SMTP('localhost')
         s.send_message(msg)
         s.quit()
+
+    def _send_slack(self, text, webhook_url):
+        slack_data = {'text': text}
+
+        response = requests.post(
+            webhook_url, data=json.dumps(slack_data),
+            headers={'Content-Type': 'application/json'}
+        )
+        if response.status_code != 200:
+            logging.error(response.status_code)
+            logging.error(response.text)
 
     def _update_next_cron_fire_time(self, job_name, base):
         cron_iter = croniter.croniter(self._cfg['jobs'][job_name]['cron'], base)
@@ -221,7 +237,9 @@ class JobManager():
                     run_cmd=self._cfg['jobs'][jn].get('run_cmd', None),
                     log_filename=self.get_log_filename(jn),
                     success_email_recipients=self._cfg['jobs'][jn].get('success_email_recipients', None),
-                    failure_email_recipients=self._cfg['jobs'][jn].get('failure_email_recipients', None))
+                    failure_email_recipients=self._cfg['jobs'][jn].get('failure_email_recipients', None),
+                    success_slack_webhook=self._cfg['jobs'][jn].get('success_slack_webhook', None),
+                    failure_slack_webhook=self._cfg['jobs'][jn].get('failure_slack_webhook', None))
 
     def reload_config(self, smqc):
         """ reload the config and broadcast a config_changed message """
@@ -241,6 +259,8 @@ class JobManager():
                 self._update_next_cron_fire_time(jn, cron_base)
             j['success_email_recipients'] = j.get('success_email_recipients', self._cfg['success_email_recipients'])
             j['failure_email_recipients'] = j.get('failure_email_recipients', self._cfg['failure_email_recipients'])
+            j['success_slack_webhook'] = j.get('success_slack_webhook', self._cfg['success_slack_webhook'])
+            j['failure_slack_webhook'] = j.get('failure_slack_webhook', self._cfg['failure_slack_webhook'])
 
         # load the states from the ledger
         try:
@@ -439,6 +459,16 @@ if __name__ == "__main__":
         parser.add_argument('--override_smq_server', help='override the sqm_server value in the config file')
         parser.add_argument('--override_ledger_dir', help='override the ledger_dir value in the config file')
         parser.add_argument('--override_job_logs_dir', help='override the job_logs_dir value in the config file')
+        parser.add_argument('--override_email_sender', help='override the email_sender value in the config file')
+        parser.add_argument('--override_success_email_recipients',
+                            help='override the success_email_recipients value in the config file')
+        parser.add_argument('--override_failure_email_recipients',
+                            help='override the failure_email_recipients value in the config file')
+        parser.add_argument('--override_success_slack_webhook',
+                            help='override the success_slack_webhook value in the config file')
+        parser.add_argument('--override_failure_slack_webhook',
+                            help='override the failure_slack_webhook value in the config file')
+
         args = parser.parse_args()
 
         # setup logging
