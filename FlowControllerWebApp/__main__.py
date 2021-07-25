@@ -9,7 +9,7 @@ import traceback
 from urllib.parse import parse_qs
 
 from pylinkjs.PyLinkJS import run_pylinkjs_app, get_all_jsclients
-from pylinkjs.GoogleOAuth2 import GoogleOAuth2LoginHandler, LogoutHandler
+from pylinkjs.GoogleOAuth2 import GoogleOAuth2LoginHandler, GoogleOAuth2LogoutHandler
 from FlowController.FlowController import JobState
 from SimpleMessageQueue.SMQ_Client import SMQ_Client
 
@@ -244,6 +244,9 @@ def _update_status_and_log(jsc, job_name):
 #    Javascript Callbacks
 # --------------------------------------------------
 def admin_menu_click(jsc, item_text):
+    if item_text == 'Index Page':
+        jsc.eval_js_code(blocking=False, js_code="""window.location.href = "/";""")
+
     if item_text == 'Reload Config':
         SMQC.send_message(SMQC.construct_msg('reload_config', jsc.tag['cfg_uid'], {}))
 
@@ -475,6 +478,13 @@ def on_job_state_changed_or_on_config_changed(msg, _smc):
         if jsc.tag.get('cfg_uid', None) == msg['sender_id']:
             refresh_gui_nodes(jsc)
             redraw_canvas(jsc)
+
+
+class LogoutHandler(GoogleOAuth2LogoutHandler):
+    async def get(self):
+        # call super handler
+        await GoogleOAuth2LogoutHandler.get(self)
+        self.redirect(self.request.headers["Referer"])
 
 
 # --------------------------------------------------
