@@ -113,30 +113,36 @@ class JobManager():
         t.start()
 
     def _send_email(self, subject, body, recipients):
-        logging.info(f'SENDING EMAIL! {subject} {recipients} {body}')
-        if recipients is None or recipients.strip() == '':
-            logging.info('NOT SEND SENDING EMAIL!')
-            return
-        msg = EmailMessage()
-        msg.set_content(body)
+        try:
+            logging.info(f'SENDING EMAIL! {subject} {recipients} {body}')
+            if recipients is None or recipients.strip() == '':
+                logging.info('NOT SEND SENDING EMAIL!')
+                return
+            msg = EmailMessage()
+            msg.set_content(body)
 
-        msg['Subject'] = subject
-        msg['From'] = self._cfg.get('email_sender', '')
-        msg['To'] = recipients
-        s = smtplib.SMTP('localhost')
-        s.send_message(msg)
-        s.quit()
+            msg['Subject'] = subject
+            msg['From'] = self._cfg.get('email_sender', '')
+            msg['To'] = recipients
+            s = smtplib.SMTP('localhost')
+            s.send_message(msg)
+            s.quit()
+        except Exception as e:
+            logging.exception(e)
 
     def _send_slack(self, text, webhook_url):
-        slack_data = {'text': text}
+        try:
+            slack_data = {'text': text}
 
-        response = requests.post(
-            webhook_url, data=json.dumps(slack_data),
-            headers={'Content-Type': 'application/json'}
-        )
-        if response.status_code != 200:
-            logging.error(response.status_code)
-            logging.error(response.text)
+            response = requests.post(
+                webhook_url, data=json.dumps(slack_data),
+                headers={'Content-Type': 'application/json'}
+            )
+            if response.status_code != 200:
+                logging.error(response.status_code)
+                logging.error(response.text)
+        except Exception as e:
+            logging.exception(e)
 
     def _update_next_cron_fire_time(self, job_name, base):
         cron_iter = croniter.croniter(self._cfg['jobs'][job_name]['cron'], base)
