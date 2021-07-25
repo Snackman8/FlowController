@@ -59,8 +59,10 @@ class JobManager():
                     smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
                                                          {'job_name': job_name, 'new_state': 'FAILURE',
                                                           'reason': 'missing run_cmd'}))
+                    self._send_email(subject=f'FAILED {job_name}', body='Missing run_cmd',
+                                     recipients=failure_email_recipients)
+                    self._send_slack(text=f'FAILED {job_name}', webhook_url=failure_slack_webhook)
                     return
-
                 try:
                     # set the current working directory to the directory of the cfg file
                     proc = subprocess.Popen(run_cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
@@ -100,6 +102,9 @@ class JobManager():
                     logger.error(traceback.format_exc())
                     smqc.send_message(smqc.construct_msg('change_job_state', FC_target_id,
                                                          {'job_name': job_name, 'new_state': 'FAILURE', 'reason': 'Job Error'}))
+                    self._send_email(subject=f'FAILED {job_name}', body=job_output,
+                                     recipients=failure_email_recipients)
+                    self._send_slack(text=f'FAILED {job_name}', webhook_url=failure_slack_webhook)
             finally:
                 file_handler.close()
                 logger.removeHandler(file_handler)

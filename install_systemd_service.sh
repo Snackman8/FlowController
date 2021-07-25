@@ -32,9 +32,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable FlowControllerSignalTestExample.service
 sudo systemctl restart FlowControllerSignalTestExample.service
 
-sudo cp ./FlowControllerWebApp.service /etc/systemd/system/
-sudo chown root:root /etc/systemd/system/FlowControllerWebApp.service
-sudo chmod 644 /etc/systemd/system/FlowControllerWebApp.service
-sudo systemctl daemon-reload
-sudo systemctl enable FlowControllerWebApp
-sudo systemctl restart FlowControllerWebApp
+# use the ATFlowControllerConfigs/ATFlowControllerWebApp.service instead of below
+# --------------------------------------------------
+#sudo cp ./FlowControllerWebApp.service /etc/systemd/system/
+#sudo chown root:root /etc/systemd/system/FlowControllerWebApp.service
+#sudo chmod 644 /etc/systemd/system/FlowControllerWebApp.service
+#sudo systemctl daemon-reload
+#sudo systemctl enable FlowControllerWebApp
+#sudo systemctl restart FlowControllerWebApp
