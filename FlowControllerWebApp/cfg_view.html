@@ -125,7 +125,7 @@
     }
 
     function force_refresh(e) {
-        call_py('reconnect');
+        call_py('reconnect', window.location.origin, window.location.pathname, window.location.search);
     }
 
     // window resize handler

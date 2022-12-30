@@ -9,7 +9,8 @@ import traceback
 from urllib.parse import parse_qs
 
 from pylinkjs.PyLinkJS import run_pylinkjs_app, get_all_jsclients
-from pylinkjs.GoogleOAuth2 import GoogleOAuth2LoginHandler, GoogleOAuth2LogoutHandler
+from pylinkjs.plugins.authGoogleOAuth2Plugin import pluginGoogleOAuth2
+from pylinkjs.plugins.authDevAuthPlugin import pluginDevAuth
 from FlowController.FlowController import JobState
 from SimpleMessageQueue.SMQ_Client import SMQ_Client
 
@@ -44,6 +45,11 @@ def _pretty_cron(s):
     try:
         retval = '['
         f = s.split(' ')
+
+        # handle every x minutes
+        if f[0].startswith('*/') and f[1] == '*':
+            retval += f"every {f[0][2:]} mins "
+
         if f[0] != '*' and f[1] != '*':
             retval += f"{int(f[1]):02}:{int(f[0]):02}" + ' '
 
@@ -79,7 +85,8 @@ def _convert_job_to_guinode(j):
         'text_padding_right': 4,
         'icon_shape': 'circle',
         'no_context_menu': False,
-        'parent_curve_settings': []}
+        'parent_curve_settings': [],
+        'dependency_line_after_text': True}
 
     # copy the default values
     gn = dict(j)
@@ -89,8 +96,8 @@ def _convert_job_to_guinode(j):
 
     # if no depends, then we don't show an icon
     if not gn['depends']:
-        gn['icon_shape'] = 'none'
-        gn['no_context_menu'] = True
+        gn['icon_shape'] = j.get('icon_shape', 'none')
+        gn['no_context_menu'] = j.get('no_context_menu', True)
 
     # add a pretty cron
     if gn['text_prefix'] == '':
@@ -204,7 +211,10 @@ def _generate_draw_job_node_js(node_info):
                     var t = "{p['text_prefix']}" + "{p['text']}";
                 """
             pc = node_info['parent_curve_settings'][i]
-            sx = f"""({p['x_rendertext']} + gCtx.measureText(t).width + {node_info['text_padding_left']}) + 4"""
+            if p['dependency_line_after_text']:
+                sx = f"""({p['x_rendertext']} + gCtx.measureText(t).width + {p['text_padding_left']} + {p['text_padding_right']})"""
+            else:
+                sx = f"""({p['x_render']})"""
             sy = f"""({p['y_render']})"""
             ex = f"""({node_info['x_render'] - node_info['icon_radius']})"""
             ey = f"""({node_info['y_render']})"""
@@ -261,25 +271,25 @@ def context_menu_click(jsc, item_text, job_name):
     if item_text == 'Trigger Job':
         SMQC.send_message(SMQC.construct_msg('trigger_job', jsc.tag['cfg_uid'],
                                              {'job_name': job_name,
-                                              'reason': f'manually set by user {jsc.user}'}))
+                                              'reason': f'manually set by user {jsc.user_auth_username}'}))
         refresh_status_and_log = True
 
     if item_text == 'Set as Ready':
         SMQC.send_message(SMQC.construct_msg('change_job_state', jsc.tag['cfg_uid'],
                                              {'job_name': job_name, 'new_state': 'IDLE',
-                                              'reason': f'manually set by user {jsc.user}'}))
+                                              'reason': f'manually set by user {jsc.user_auth_username}'}))
         refresh_status_and_log = True
 
     if item_text == 'Set as Success':
         SMQC.send_message(SMQC.construct_msg('change_job_state', jsc.tag['cfg_uid'],
                                              {'job_name': job_name, 'new_state': 'SUCCESS',
-                                              'reason': f'manually set by user {jsc.user}'}))
+                                              'reason': f'manually set by user {jsc.user_auth_username}'}))
         refresh_status_and_log = True
 
     if item_text == 'Set as Fail':
         SMQC.send_message(SMQC.construct_msg('change_job_state', jsc.tag['cfg_uid'],
                                              {'job_name': job_name, 'new_state': 'FAILURE',
-                                              'reason': f'manually set by user {jsc.user}'}))
+                                              'reason': f'manually set by user {jsc.user_auth_username}'}))
         refresh_status_and_log = True
 
     if refresh_status_and_log:
@@ -338,9 +348,9 @@ def ready_cfg_view(jsc, *args):
 
     reconnect_cfg_view(jsc, *args)
     jsc.eval_js_code(blocking=False, js_code="canvasViewportAutofit(gBoundingBox)")
-    if jsc.user is not None:
+    if jsc.user_auth_username is not None:
         jsc.eval_js_code(blocking=False, js_code="$('#btn_login').css('display', 'none')")
-        jsc.eval_js_code(blocking=False, js_code=f"$('#btn_logout').html('Logout<br><br>{jsc.user}')")
+        jsc.eval_js_code(blocking=False, js_code=f"$('#btn_logout').html('Logout<br><br>{jsc.user_auth_username}')")
         jsc.eval_js_code(blocking=False, js_code="$('#btn_logout').css('display', 'inline-block')")
     else:
         jsc.eval_js_code(blocking=False, js_code="$('#btn_login').css('display', 'inline-block')")
@@ -366,6 +376,9 @@ def ready(jsc, *args):
 
 def reconnect(jsc, *args):
     """ called by pylinkjs when browser reconnects if failed network connection or webapp is restarted """
+    if len(args) == 0:
+        return reconnect_cfg_view(jsc, *args)
+
     if args[1].startswith('/cfg_view.html'):
         return reconnect_cfg_view(jsc, *args)
     if args[1].startswith('/'):
@@ -480,13 +493,6 @@ def on_job_state_changed_or_on_config_changed(msg, _smc):
             redraw_canvas(jsc)
 
 
-class LogoutHandler(GoogleOAuth2LogoutHandler):
-    async def get(self):
-        # call super handler
-        await GoogleOAuth2LogoutHandler.get(self)
-        self.redirect(self.request.headers["Referer"])
-
-
 # --------------------------------------------------
 #    Main
 # --------------------------------------------------
@@ -513,20 +519,24 @@ def run(args):
 
     # run the app
     default_html_page = os.path.join(os.path.dirname(__file__), 'flow_controller_webapp_index.html')
-    extra_settings = {}
     run_kwargs = {}
     run_kwargs['default_html'] = default_html_page
     run_kwargs['port'] = 7010
     run_kwargs['html_dir'] = os.path.dirname(__file__)
     run_kwargs['heartbeat_callback'] = heartbeat_callback
     run_kwargs['heartbeat_interval'] = 1
-    if args['oauth2_clientid'] is not None:
-        extra_settings['google_oauth'] = {"key": args['oauth2_clientid'], "secret": args['oauth2_secret']}
-        extra_settings['google_oauth_redirect_uri'] = 'http://localhost:7010/login'
-        run_kwargs['login_handler'] = GoogleOAuth2LoginHandler
-        run_kwargs['logout_handler'] = LogoutHandler
-    run_kwargs['extra_settings'] = extra_settings
 
+    # init the auth method
+    if args['auth_method'] == 'GoogleOAuth2':
+        # init the google oauth2 plugin
+        auth_plugin = pluginGoogleOAuth2(client_id=args['oauth2_clientid'],
+                                         secret=args['oauth2_secret'],
+                                         redirect_url=f'{args["oauth2_redirect_url"]}/login')
+    elif args['auth_method'] == 'DevAuth':
+        auth_plugin = pluginDevAuth()
+    run_kwargs['plugins'] = [auth_plugin]
+
+    # run the application
     run_pylinkjs_app(**run_kwargs)
 
 
@@ -536,7 +546,9 @@ if __name__ == "__main__":
         parser = argparse.ArgumentParser(description='Flow Controller WebApp')
         parser.add_argument('--smq_server', default='localhost:6050')
         parser.add_argument('--logging_level', default='INFO', help='logging level')
+        parser.add_argument('--auth_method', help='authentication method', choices=['GoogleOAuth2', 'DevAuth'], default='DevAuth')
         parser.add_argument('--oauth2_clientid', help='google oath2 client id')
+        parser.add_argument('--oauth2_redirect_url', help='google oath2 redirect url', default='http://localhost:7010')
         parser.add_argument('--oauth2_secret', help='google oath2 secret')
         args = parser.parse_args()
 
