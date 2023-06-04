@@ -15,6 +15,7 @@ The FlowController project depends on two other projects, please install these p
 ```
 https://github.com/Snackman8/pyLinkJS
 https://github.com/Snackman8/SimpleMessageQueue
+^ Make sure to install the systemd services for SimpleMessageQueue or Flowcontroller will not work
 ```
 
 Clone the project into your home directory
