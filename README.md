@@ -37,7 +37,7 @@ sudo ./install_systemd_service.sh
 
 To view the webapp, open the url below
 ```
-http://localhost:8300
+http://localhost:7010
 ```
 
 To check the status of the service, stop, or start use the commands below
