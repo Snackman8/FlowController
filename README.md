@@ -1,5 +1,9 @@
 # FlowController
 
+<img width=600 src="https://github.com/Snackman8/FlowController/raw/main/docs/FlowControllerSimpleExample.png">
+
+<img width=600 src="https://github.com/Snackman8/FlowController/raw/main/docs/FlowControllerSignalTestExample.png">
+
 ## Install on an Ubuntu Linux System
 Update the packages in the package manager before installing
 ```
