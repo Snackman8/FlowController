@@ -40,6 +40,11 @@ To view the webapp, open the url below
 http://localhost:7010
 ```
 
+Use the sample Flows provided at ~/FlowController/sample_cfgs_and_jobs as the basis for your own flows
+```
+~/FlowController/sample_cfgs_and_jobs
+```
+
 To check the status of the service, stop, or start use the commands below
 ```
 sudo systemctl status FlowControllerWebApp
