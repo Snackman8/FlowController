@@ -237,7 +237,8 @@ def _update_status_and_log(jsc, job_name):
     jsc.tag['current_job_selected'] = job_name
     msg = SMQC.construct_msg('request_log_chunk', jsc.tag['cfg_uid'], {'job_name': job_name, 'range': ''})
     response = SMQC.send_message(msg, wait=5)
-    jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_log').html(`{response['log']}`); $('#pre_log').scrollTop($('#pre_log')[0].scrollHeight)""")
+    response_log = response['log'].replace('`', '\`')
+    jsc.eval_js_code(blocking=False, js_code=f"""$('#pre_log').html(`{response_log}`); $('#pre_log').scrollTop($('#pre_log')[0].scrollHeight)""")
 
     response = SMQC.send_message(SMQC.construct_msg('request_config', jsc.tag['cfg_uid'], {}), wait=5)
     jsc.tag['config'] = response['config']
