@@ -223,7 +223,8 @@ class JobManager():
         for jn, j in jobs.items():
             # skip any nodes that are not IDLE or do not have depends
             if j['state'] != JobState.IDLE:
-                continue
+                if not process_cron:
+                    continue
 
             # check if any jobs have all of their dependencies met, if so, change to pending
             if len(j.get('depends', [])) != 0:
