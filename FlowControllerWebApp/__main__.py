@@ -526,6 +526,7 @@ def run(args):
     run_kwargs['html_dir'] = os.path.dirname(__file__)
     run_kwargs['heartbeat_callback'] = heartbeat_callback
     run_kwargs['heartbeat_interval'] = 1
+    run_kwargs['internal_polling_interval'] = 0.05
 
     # init the auth method
     if args['auth_method'] == 'GoogleOAuth2':
