@@ -124,7 +124,7 @@ class JobManager():
             msg['Subject'] = subject
             msg['From'] = self._cfg.get('email_sender', '')
             msg['To'] = recipients
-            s = smtplib.SMTP('localhost')
+            s = smtplib.SMTP(self._cfg.get('smtp_server', 'localhost'))
             s.send_message(msg)
             s.quit()
         except Exception as e:
