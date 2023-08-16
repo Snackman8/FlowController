@@ -114,7 +114,8 @@ class JobManager():
 
     def _send_email(self, subject, body, recipients):
         try:
-            logging.info(f'SENDING EMAIL! {subject} {recipients} {body}')
+            smtp_server = self._cfg.get('smtp_server', 'localhost')
+            logging.info(f'SENDING EMAIL! {smtp_server} {subject} {recipients} {body}')
             if recipients is None or recipients.strip() == '':
                 logging.info('NOT SEND SENDING EMAIL!')
                 return
@@ -124,7 +125,7 @@ class JobManager():
             msg['Subject'] = subject
             msg['From'] = self._cfg.get('email_sender', '')
             msg['To'] = recipients
-            s = smtplib.SMTP(self._cfg.get('smtp_server', 'localhost'))
+            s = smtplib.SMTP(smtp_server)
             s.send_message(msg)
             s.quit()
         except Exception as e:
@@ -132,6 +133,9 @@ class JobManager():
 
     def _send_slack(self, text, webhook_url):
         try:
+            if webhook_url is None:
+                logging.info('NOT SENDING SLACK because webhook_url is not set')
+                return
             slack_data = {'text': text}
 
             response = requests.post(
