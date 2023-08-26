@@ -243,6 +243,16 @@ class JobManager():
                         self._update_next_cron_fire_time(jn, cron_time)
                         self.change_job_state(smqc, jn, JobState.PENDING, 'cron fire time')
 
+        # loop through all of the jobs to set dependencies of jobs that are PENDING to IDLE
+        loop_again = True
+        while loop_again:
+            loop_again = False
+            for jn, j in jobs.items():
+                if j['state'] == JobState.SUCCESS or j['state'] == JobState.FAILURE:
+                    if any([(djn in jobs) and (jobs[djn]['state'] == JobState.PENDING) for djn in j['depends']]):
+                        self.change_job_state(smqc, jn, JobState.IDLE, 'Parent went to pending')
+                        loop_again = True
+
         # execute any pending jobs
         for jn, j in jobs.items():
             if j['state'] == JobState.PENDING:
