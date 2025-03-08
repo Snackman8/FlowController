@@ -11,5 +11,5 @@ Type=simple
 User=FlowController
 Restart=on-failure
 KillSignal=SIGINT
-ExecStart=/usr/bin/python3 -m FlowController.FlowController --config $CFG_FILE --start --logging_level INFO
+ExecStart=/usr/local/pipx/venvs/flowcontroller/bin/FlowController --config $CFG_FILE --start --logging_level INFO
 StandardError=append:/var/log/FlowController_simple_example.log

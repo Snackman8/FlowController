@@ -542,7 +542,7 @@ def run(args):
     run_pylinkjs_app(**run_kwargs)
 
 
-if __name__ == "__main__":
+def console_entry():
     try:
         # parse the arguments
         parser = argparse.ArgumentParser(description='Flow Controller WebApp')
@@ -565,3 +565,8 @@ if __name__ == "__main__":
         logging.error(traceback.format_exc())
     finally:
         logging.info('Flow Controller WebApp Exiting')
+
+
+if __name__ == "__main__":
+    # parse command line arguments
+    console_entry()

@@ -8,5 +8,5 @@ WantedBy=multi-user.target
 Type=simple
 User=FlowController
 Restart=on-failure
-ExecStart=/usr/bin/python3 -m FlowControllerWebApp
+ExecStart=/usr/local/pipx/venvs/flowcontroller/bin/FlowControllerWebApp
 StandardError=append:/var/log/FlowControllerWebApp.log

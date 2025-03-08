@@ -1,4 +1,5 @@
 croniter
 pandas
-SimpleMessageQueue
-
+requests
+SimpleMessageQueue @ git+https://github.com/Snackman8/SimpleMessageQueue.git
+pylinkjs @ git+https://github.com/Snackman8/pyLinkJS.git

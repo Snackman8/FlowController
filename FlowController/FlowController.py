@@ -463,7 +463,7 @@ def run(args):
             client.stop()
 
 
-if __name__ == "__main__":
+def console_entry():
     try:
         # parse the arguments
         parser = argparse.ArgumentParser(description='Flow Controller')
@@ -507,3 +507,8 @@ if __name__ == "__main__":
     except Exception as e:
         logging.exception('Exception')
         raise(e)
+
+
+if __name__ == "__main__":
+    # parse command line arguments
+    console_entry()
