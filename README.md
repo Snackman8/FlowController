@@ -13,7 +13,6 @@ sudo apt-get install python3-pip
 
 The FlowController project depends on two other projects, please install these projects first
 ```
-https://github.com/Snackman8/pyLinkJS
 https://github.com/Snackman8/SimpleMessageQueue
 ^ Make sure to install the systemd services for SimpleMessageQueue or Flowcontroller will not work
 ```
@@ -25,19 +24,16 @@ git clone https://github.com/Snackman8/FlowController
 ```
 
 Install the FlowController packge
-```
-cd ~/FlowController
-sudo pip3 install .
-```
 
-Install the included systemd services to install the FlowcControllerWebApp and two sample flows
+The FlowcControllerWebApp and two sample flows will be installed
 
 Two sample flow controllers are provided
 * FlowControllerSimpleExample
 * FlowControllerSignalTestExample
 
 ```
-sudo ./install_systemd_service.sh
+cd ~/FlowController/deployment
+sudo ./install_with_pipx_systemd.sh
 ```
 
 To view the webapp, open the url below
